@@ -9,7 +9,7 @@ namespace node {
 namespace wasi {
 
 using v8::Array;
-using v8::ArrayBufferView;
+using v8::ArrayBuffer;
 using v8::Context;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -26,10 +26,7 @@ WASI::WASI(Environment* env,
            uvwasi_options_t* options) : BaseObject(env, object) {
   /* uvwasi_errno_t err = */ uvwasi_init(&uvw_, options);
 
-  if (memory->IsNull())
-    memory_.Reset();
-  else
-    memory_.Reset(env->isolate(), memory.As<ArrayBufferView>());
+  memory_.Reset(env->isolate(), memory.As<ArrayBuffer>());
 }
 
 
@@ -44,7 +41,7 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsArray());
   CHECK(args[1]->IsArray());
   // CHECK(args[2]->IsArray());
-  CHECK(args[3]->IsArrayBufferView() || args[3]->IsNull());
+  CHECK(args[3]->IsArrayBuffer());
 
   Environment* env = Environment::GetCurrent(args);
   Local<Context> context = env->context();
@@ -106,17 +103,14 @@ void WASI::ArgsGet(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsUint32());
   ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
   Environment* env = wasi->env();
-  Local<ArrayBufferView> abv = PersistentToLocal::Default(env->isolate(),
-                                                          wasi->memory_);
-  // if (!abv->HasBuffer())
-  //   return UVWASI_ENOBUFS;
-  CHECK(abv->HasBuffer());
+  Local<ArrayBuffer> ab = PersistentToLocal::Default(env->isolate(),
+                                                     wasi->memory_);
 
   // TODO(cjihrig): Check for buffer overflows.
 
   uint32_t argv_offset = args[0].As<Uint32>()->Value();
   uint32_t argv_buf_offset = args[1].As<Uint32>()->Value();
-  char* buf = static_cast<char*>(abv->Buffer()->GetContents().Data());
+  char* buf = static_cast<char*>(ab->GetContents().Data());
   char** argv = new char*[wasi->uvw_.argc];
   char* argv_buf = &buf[argv_buf_offset];
   uvwasi_errno_t err = uvwasi_args_get(&wasi->uvw_, argv, argv_buf);
@@ -171,17 +165,14 @@ void WASI::EnvironGet(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsUint32());
   ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
   Environment* env = wasi->env();
-  Local<ArrayBufferView> abv = PersistentToLocal::Default(env->isolate(),
-                                                          wasi->memory_);
-  // if (!abv->HasBuffer())
-  //   return UVWASI_ENOBUFS;
-  CHECK(abv->HasBuffer());
+  Local<ArrayBuffer> ab = PersistentToLocal::Default(env->isolate(),
+                                                     wasi->memory_);
 
   // TODO(cjihrig): Check for buffer overflows.
 
   uint32_t environ_offset = args[0].As<Uint32>()->Value();
   uint32_t environ_buf_offset = args[1].As<Uint32>()->Value();
-  char* buf = static_cast<char*>(abv->Buffer()->GetContents().Data());
+  char* buf = static_cast<char*>(ab->GetContents().Data());
   char** environ = new char*[wasi->uvw_.envc];
   char* environ_buf = &buf[environ_buf_offset];
   uvwasi_errno_t err = uvwasi_environ_get(&wasi->uvw_, environ, environ_buf);
@@ -380,7 +371,12 @@ void WASI::PollOneoff(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::ProcExit(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsUint32());
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  uint32_t code = args[0].As<Uint32>()->Value();
+  args.GetReturnValue().Set(uvwasi_proc_exit(&wasi->uvw_, code));
 }
 
 
@@ -416,12 +412,9 @@ void WASI::SockShutdown(const FunctionCallbackInfo<Value>& args) {
 
 inline uvwasi_errno_t WASI::writeUInt32(uint32_t value, uint32_t offset) {
   Environment* env = this->env();
-  Local<ArrayBufferView> abv = PersistentToLocal::Default(env->isolate(),
-                                                          this->memory_);
-  if (!abv->HasBuffer())
-    return UVWASI_ENOBUFS;
-
-  uint8_t* buf = static_cast<uint8_t*>(abv->Buffer()->GetContents().Data());
+  Local<ArrayBuffer> ab = PersistentToLocal::Default(env->isolate(),
+                                                     this->memory_);
+  uint8_t* buf = static_cast<uint8_t*>(ab->GetContents().Data());
   // Bounds check. UVWASI_EOVERFLOW
 
   buf[offset++] = value & 0xFF;
