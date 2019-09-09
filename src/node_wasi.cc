@@ -80,8 +80,8 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   options.preopenc = 1;
   options.preopens =
     static_cast<uvwasi_preopen_t*>(calloc(1, sizeof(uvwasi_preopen_t)));
-  options.preopens[0].mapped_path = "/var";
-  options.preopens[0].real_path = ".";
+  options.preopens[0].mapped_path = const_cast<char*>("/var");
+  options.preopens[0].real_path = const_cast<char*>(".");
 
   new WASI(env, args.This(), args[3], &options);
 
