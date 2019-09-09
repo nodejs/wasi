@@ -77,7 +77,7 @@ class WASI : public BaseObject {
   ~WASI() override;
   inline uvwasi_errno_t writeUInt32(uint32_t value, uint32_t offset);
   uvwasi_t uvw_;
-  v8::Persistent<v8::ArrayBufferView> memory_;
+  v8::Persistent<v8::ArrayBuffer> memory_;
 };
 
 
