@@ -41,7 +41,7 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsArray());
   CHECK(args[1]->IsArray());
   // CHECK(args[2]->IsArray());
-  CHECK(args[3]->IsArrayBuffer());
+  CHECK(args[3]->IsArrayBuffer() || args[3]->IsSharedArrayBuffer());
 
   Environment* env = Environment::GetCurrent(args);
   Local<Context> context = env->context();
