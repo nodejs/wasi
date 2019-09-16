@@ -533,7 +533,8 @@ struct ContextInfo {
 #define DEBUG_CATEGORY_NAMES(V)                                                \
   NODE_ASYNC_PROVIDER_TYPES(V)                                                 \
   V(INSPECTOR_SERVER)                                                          \
-  V(INSPECTOR_PROFILER)
+  V(INSPECTOR_PROFILER)                                                        \
+  V(WASI)
 
 enum class DebugCategory {
 #define V(name) name,
