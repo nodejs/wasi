@@ -77,7 +77,7 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   options.preopenc = 1;
   options.preopens =
     static_cast<uvwasi_preopen_t*>(calloc(1, sizeof(uvwasi_preopen_t)));
-  options.preopens[0].mapped_path = "/var";
+  options.preopens[0].mapped_path = "/sandbox";
   options.preopens[0].real_path = ".";
 
   new WASI(env, args.This(), args[3], &options);
@@ -221,7 +221,13 @@ void WASI::FdAllocate(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::FdClose(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsUint32());
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  uint32_t fd = args[0].As<Uint32>()->Value();
+  uvwasi_errno_t err = uvwasi_fd_close(&wasi->uvw_, fd);
+  args.GetReturnValue().Set(err);
 }
 
 
