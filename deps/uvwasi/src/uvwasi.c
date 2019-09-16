@@ -29,10 +29,12 @@ static int uvwasi__is_absolute_path(const char* path, size_t path_len) {
 static uvwasi_errno_t uvwasi__resolve_path(const struct uvwasi_fd_wrap_t* fd,
                                            const char* path,
                                            size_t path_len,
-                                           char* resolved_path) {
+                                           char* resolved_path,
+                                           uvwasi_lookupflags_t flags) {
   /* TODO(cjihrig): path_len is treated as a size. Need to verify if path_len is
      really a string length or a size. Also need to verify if it is null
      terminated. */
+  /* TODO(cjihrig): flags is currently unused. */
   uvwasi_errno_t err;
   char* abs_path;
   char* tok;
@@ -749,11 +751,24 @@ uvwasi_errno_t uvwasi_fd_pread(uvwasi_t* uvwasi,
 }
 
 
-/* TODO(cjihrig): uvwasi_prestat_t is not defined. */
 uvwasi_errno_t uvwasi_fd_prestat_get(uvwasi_t* uvwasi,
-                                     uvwasi_fd_t fd
-                                     /* , uvwasi_prestat_t* buf */) {
-  return UVWASI_ENOTSUP;
+                                     uvwasi_fd_t fd,
+                                     uvwasi_prestat_t* buf) {
+  struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_errno_t err;
+
+  if (uvwasi == NULL || buf == NULL)
+    return UVWASI_EINVAL;
+
+  err = uvwasi_fd_table_get(&uvwasi->fds, fd, &wrap, 0, 0);
+  if (err != UVWASI_ESUCCESS)
+    return err;
+  if (wrap->preopen != 1)
+    return UVWASI_EINVAL;
+
+  buf->pr_type = UVWASI_PREOPENTYPE_DIR;
+  buf->u.dir.pr_name_len = strlen(wrap->path);
+  return UVWASI_ESUCCESS;
 }
 
 
@@ -1022,7 +1037,7 @@ uvwasi_errno_t uvwasi_path_create_directory(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, 0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1042,7 +1057,6 @@ uvwasi_errno_t uvwasi_path_filestat_get(uvwasi_t* uvwasi,
                                         const char* path,
                                         size_t path_len,
                                         uvwasi_filestat_t* buf) {
-  /* TODO(cjihrig): flags is currently unused. */
   char resolved_path[PATH_MAX_BYTES];
   struct uvwasi_fd_wrap_t* wrap;
   uv_fs_t req;
@@ -1060,7 +1074,7 @@ uvwasi_errno_t uvwasi_path_filestat_get(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, flags);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1093,7 +1107,6 @@ uvwasi_errno_t uvwasi_path_filestat_set_times(uvwasi_t* uvwasi,
                                               uvwasi_timestamp_t st_mtim,
                                               uvwasi_fstflags_t fst_flags) {
   /* TODO(cjihrig): libuv does not currently support nanosecond precision. */
-  /* TODO(cjihrig): flags is not currently used. */
   char resolved_path[PATH_MAX_BYTES];
   struct uvwasi_fd_wrap_t* wrap;
   uv_fs_t req;
@@ -1116,7 +1129,7 @@ uvwasi_errno_t uvwasi_path_filestat_set_times(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, flags);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1139,7 +1152,6 @@ uvwasi_errno_t uvwasi_path_link(uvwasi_t* uvwasi,
                                 uvwasi_fd_t new_fd,
                                 const char* new_path,
                                 size_t new_path_len) {
-  /* TODO(cjihrig): old_flags is currently unused. */
   char resolved_old_path[PATH_MAX_BYTES];
   char resolved_new_path[PATH_MAX_BYTES];
   struct uvwasi_fd_wrap_t* old_wrap;
@@ -1170,14 +1182,16 @@ uvwasi_errno_t uvwasi_path_link(uvwasi_t* uvwasi,
   err = uvwasi__resolve_path(old_wrap,
                              old_path,
                              old_path_len,
-                             resolved_old_path);
+                             resolved_old_path,
+                             old_flags);
   if (err != UVWASI_ESUCCESS)
     return err;
 
   err = uvwasi__resolve_path(new_wrap,
                              new_path,
                              new_path_len,
-                             resolved_new_path);
+                             resolved_new_path,
+                             0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1200,7 +1214,6 @@ uvwasi_errno_t uvwasi_path_open(uvwasi_t* uvwasi,
                                 uvwasi_rights_t fs_rights_inheriting,
                                 uvwasi_fdflags_t fs_flags,
                                 uvwasi_fd_t* fd) {
-  /* TODO(cjihrig): dirflags is currently unused. */
   char resolved_path[PATH_MAX_BYTES];
   uvwasi_rights_t needed_inheriting;
   uvwasi_rights_t needed_base;
@@ -1270,7 +1283,11 @@ uvwasi_errno_t uvwasi_path_open(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(dirfd_wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(dirfd_wrap,
+                             path,
+                             path_len,
+                             resolved_path,
+                             dirflags);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1323,7 +1340,7 @@ uvwasi_errno_t uvwasi_path_readlink(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, 0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1368,7 +1385,7 @@ uvwasi_errno_t uvwasi_path_remove_directory(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, 0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1419,14 +1436,16 @@ uvwasi_errno_t uvwasi_path_rename(uvwasi_t* uvwasi,
   err = uvwasi__resolve_path(old_wrap,
                              old_path,
                              old_path_len,
-                             resolved_old_path);
+                             resolved_old_path,
+                             0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
   err = uvwasi__resolve_path(new_wrap,
                              new_path,
                              new_path_len,
-                             resolved_new_path);
+                             resolved_new_path,
+                             0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1465,7 +1484,8 @@ uvwasi_errno_t uvwasi_path_symlink(uvwasi_t* uvwasi,
   err = uvwasi__resolve_path(wrap,
                              new_path,
                              new_path_len,
-                             resolved_new_path);
+                             resolved_new_path,
+                             0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
@@ -1502,7 +1522,7 @@ uvwasi_errno_t uvwasi_path_unlink_file(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path);
+  err = uvwasi__resolve_path(wrap, path, path_len, resolved_path, 0);
   if (err != UVWASI_ESUCCESS)
     return err;
 
