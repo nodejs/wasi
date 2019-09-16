@@ -1,4 +1,5 @@
 #include "env-inl.h"
+#include "debug_utils.h"
 #include "util-inl.h"
 #include "node.h"
 #include "uv.h"
@@ -7,6 +8,26 @@
 
 namespace node {
 namespace wasi {
+
+#define WASI_DEBUG(wasi, format_string, ...)                                  \
+  Debug((wasi)->env(), DebugCategory::WASI, (format_string), ##__VA_ARGS__)
+
+#define RETURN_IF_BAD_ARG_COUNT(args, expected)                               \
+  do {                                                                        \
+    if ((args).Length() != (expected)) {                                      \
+      (args).GetReturnValue().Set(UVWASI_EINVAL);                             \
+      return;                                                                 \
+    }                                                                         \
+  } while (0)
+
+#define CHECK_TO_TYPE_OR_RETURN(args, input, type, result)                    \
+  do {                                                                        \
+    if (!(input)->Is##type()) {                                               \
+      (args).GetReturnValue().Set(UVWASI_EINVAL);                             \
+      return;                                                                 \
+    }                                                                         \
+    (result) = (input).As<type>()->Value();                                   \
+  } while (0)
 
 using v8::Array;
 using v8::ArrayBuffer;
@@ -25,7 +46,6 @@ WASI::WASI(Environment* env,
            Local<Value> memory,
            uvwasi_options_t* options) : BaseObject(env, object) {
   /* uvwasi_errno_t err = */ uvwasi_init(&uvw_, options);
-
   memory_.Reset(env->isolate(), memory.As<ArrayBuffer>());
 }
 
@@ -272,6 +292,15 @@ void WASI::FdPread(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::FdPrestatGet(const FunctionCallbackInfo<Value>& args) {
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t buf;
+  RETURN_IF_BAD_ARG_COUNT(args, 2);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, buf);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi, "fd_prestat_get(%d, %d)\n", fd, buf);
+
   args.GetReturnValue().Set(UVWASI_ENOTSUP);
 }
 
@@ -495,6 +524,9 @@ static void Initialize(Local<Object> target,
               tmpl->GetFunction(context).ToLocalChecked()).ToChecked();
 }
 
+#undef WASI_DEBUG
+#undef RETURN_IF_BAD_ARG_COUNT
+#undef CHECK_TO_TYPE_OR_RETURN
 
 }  // namespace wasi
 }  // namespace node
