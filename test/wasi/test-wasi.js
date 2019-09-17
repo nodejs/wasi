@@ -12,22 +12,9 @@ if (process.argv[2] === 'wasi-child') {
   // TODO(cjihrig): Patch the import object until the native bindings are ready.
   let instance = null;
 
-  wasi.wasiImport.fd_prestat_get = function(fd, buf) {
-    if (fd > 3) return 8;  // EBADF
-    const view = new DataView(instance.exports.memory.buffer);
-    view.setUint8(buf, 0);
-    view.setUint32(buf + 4, Buffer.byteLength('/sandbox'), true);
-    return 0;
-  };
-
-  wasi.wasiImport.fd_prestat_dir_name = function(fd, path, path_len) {
-    const mem = Buffer.from(instance.exports.memory.buffer);
-    mem.write('/sandbox', path, path_len, 'utf8');
-    return 0;
-  };
-
-  wasi.wasiImport.fd_fdstat_get = function(fd, buf) {
-    return 0;
+  wasi.wasiImport.path_open = function() {
+    // Called by the 'cant_dotdot' test.
+    return 76; // ENOTCAPABLE
   };
   // End of import object patching.
 
@@ -38,7 +25,7 @@ if (process.argv[2] === 'wasi-child') {
   (async () => {
     ({ instance } = await WebAssembly.instantiate(buffer, importObject));
 
-    WASI.start(instance);
+    wasi.start(instance);
   })();
 } else {
   const assert = require('assert');
@@ -46,7 +33,9 @@ if (process.argv[2] === 'wasi-child') {
 
   function runWASI(options) {
     console.log('executing', options.test);
-    const child = cp.fork(__filename, ['wasi-child', options.test]);
+    const child = cp.fork(__filename, ['wasi-child', options.test], {
+      execArgv: ['--experimental-wasm-bigint']
+    });
 
     child.on('exit', common.mustCall((code, signal) => {
       assert.strictEqual(code, options.exitCode || 0);
