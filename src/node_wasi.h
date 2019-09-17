@@ -14,7 +14,6 @@ class WASI : public BaseObject {
  public:
   WASI(Environment* env,
        v8::Local<v8::Object> object,
-       v8::Local<v8::Value> memory,
        uvwasi_options_t* options);
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   SET_NO_MEMORY_INFO()
@@ -73,11 +72,17 @@ class WASI : public BaseObject {
   static void SockSend(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SockShutdown(const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  static void _SetMemory(const v8::FunctionCallbackInfo<v8::Value>& args);
+
  private:
   ~WASI() override;
+  inline uvwasi_errno_t writeUInt8(uint8_t value, uint32_t offset);
+  inline uvwasi_errno_t writeUInt16(uint16_t value, uint32_t offset);
   inline uvwasi_errno_t writeUInt32(uint32_t value, uint32_t offset);
+  inline uvwasi_errno_t writeUInt64(uint64_t value, uint32_t offset);
+  uvwasi_errno_t backingStore(char** store, size_t* byte_length);
   uvwasi_t uvw_;
-  v8::Persistent<v8::ArrayBuffer> memory_;
+  v8::Persistent<v8::Object> memory_;
 };
 
 
