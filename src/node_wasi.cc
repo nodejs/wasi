@@ -29,6 +29,17 @@ namespace wasi {
     (result) = (input).As<type>()->Value();                                   \
   } while (0)
 
+#define UNWRAP_BIGINT_OR_RETURN(args, input, type, result)                    \
+  do {                                                                        \
+    if (!(input)->IsBigInt()) {                                               \
+      (args).GetReturnValue().Set(UVWASI_EINVAL);                             \
+      return;                                                                 \
+    }                                                                         \
+    Local<BigInt> js_value = (input).As<BigInt>();                            \
+    bool lossless;                                                            \
+    (result) = js_value->type ## Value(&lossless);                            \
+  } while (0)
+
 #define GET_BACKING_STORE_OR_RETURN(wasi, args, mem_ptr, mem_size)            \
   do {                                                                        \
     uvwasi_errno_t err = (wasi)->backingStore((mem_ptr), (mem_size));         \
@@ -41,6 +52,7 @@ namespace wasi {
 
 using v8::Array;
 using v8::ArrayBuffer;
+using v8::BigInt;
 using v8::Context;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -431,7 +443,57 @@ void WASI::PathLink(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::PathOpen(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t dirfd;
+  uint32_t dirflags;
+  uint32_t path_ptr;
+  uint32_t path_len;
+  uint32_t o_flags;
+  uint64_t fs_rights_base;
+  uint64_t fs_rights_inheriting;
+  uint32_t fs_flags;
+  uint32_t fd_ptr;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 9);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, dirfd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, dirflags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, o_flags);
+  UNWRAP_BIGINT_OR_RETURN(args, args[5], Uint64, fs_rights_base);
+  UNWRAP_BIGINT_OR_RETURN(args, args[6], Uint64, fs_rights_inheriting);
+  CHECK_TO_TYPE_OR_RETURN(args, args[7], Uint32, fs_flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[8], Uint32, fd_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_open(%d, %d, %d, %d, %d, %d, %d, %d, %d)\n",
+             dirfd,
+             dirflags,
+             path_ptr,
+             path_len,
+             o_flags,
+             fs_rights_base,
+             fs_rights_inheriting,
+             fs_flags,
+             fd_ptr);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  uvwasi_fd_t fd;
+  uvwasi_errno_t err = uvwasi_path_open(&wasi->uvw_,
+                                        dirfd,
+                                        dirflags,
+                                        &memory[path_ptr],
+                                        path_len,
+                                        static_cast<uvwasi_oflags_t>(o_flags),
+                                        fs_rights_base,
+                                        fs_rights_inheriting,
+                                        static_cast<uvwasi_fdflags_t>(fs_flags),
+                                        &fd);
+  // TODO(cjihrig): Check for buffer overflows.
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(fd, fd_ptr);
+
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -675,6 +737,7 @@ static void Initialize(Local<Object> target,
 #undef WASI_DEBUG
 #undef RETURN_IF_BAD_ARG_COUNT
 #undef CHECK_TO_TYPE_OR_RETURN
+#undef UNWRAP_BIGINT_OR_RETURN
 #undef GET_BACKING_STORE_OR_RETURN
 
 }  // namespace wasi
