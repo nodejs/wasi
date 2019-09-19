@@ -8,22 +8,12 @@ if (process.argv[2] === 'wasi-child') {
   const wasmDir = path.join(__dirname, 'wasm');
   const memory = new WebAssembly.Memory({ initial: 3 });
   const wasi = new WASI({ args: [], env: process.env, memory });
-
-  // TODO(cjihrig): Patch the import object until the native bindings are ready.
-  let instance = null;
-
-  wasi.wasiImport.path_open = function() {
-    // Called by the 'cant_dotdot' test.
-    return 76; // ENOTCAPABLE
-  };
-  // End of import object patching.
-
   const importObject = { wasi_unstable: wasi.wasiImport };
   const modulePath = path.join(wasmDir, `${process.argv[3]}.wasm`);
   const buffer = fs.readFileSync(modulePath);
 
   (async () => {
-    ({ instance } = await WebAssembly.instantiate(buffer, importObject));
+    const { instance } = await WebAssembly.instantiate(buffer, importObject);
 
     wasi.start(instance);
   })();
