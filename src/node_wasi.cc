@@ -309,7 +309,7 @@ void WASI::FdAdvise(const FunctionCallbackInfo<Value>& args) {
   CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, advice);
   ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
   WASI_DEBUG(wasi,
-             "fd_advise(%d, %d, %d %d)\n",
+             "fd_advise(%d, %d, %d, %d)\n",
              fd,
              offset,
              len,
@@ -562,12 +562,72 @@ void WASI::FdPrestatDirName(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::FdPwrite(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t iovs_ptr;
+  uint32_t iovs_len;
+  uint64_t offset;
+  uint32_t nwritten_ptr;
+  RETURN_IF_BAD_ARG_COUNT(args, 5);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, iovs_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, iovs_len);
+  UNWRAP_BIGINT_OR_RETURN(args, args[3], Uint64, offset);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, nwritten_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "uvwasi_fd_pwrite(%d, %d, %d, %d, %d)\n",
+             fd,
+             iovs_ptr,
+             iovs_len,
+             offset,
+             nwritten_ptr);
+  // TODO(cjihrig): Handle iovs properly instead of passing nullptr.
+  // TODO(cjihrig): Check for buffer overflows.
+  size_t nwritten;
+  uvwasi_errno_t err = uvwasi_fd_pwrite(&wasi->uvw_,
+                                        fd,
+                                        nullptr,
+                                        iovs_len,
+                                        offset,
+                                        &nwritten);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(nwritten, nwritten_ptr);
+
+  args.GetReturnValue().Set(err);
 }
 
 
 void WASI::FdRead(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t iovs_ptr;
+  uint32_t iovs_len;
+  uint32_t nread_ptr;
+  RETURN_IF_BAD_ARG_COUNT(args, 4);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, iovs_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, iovs_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, nread_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "fd_read(%d, %d, %d, %d)\n",
+             fd,
+             iovs_ptr,
+             iovs_len,
+             nread_ptr);
+  // TODO(cjihrig): Handle iovs properly instead of passing nullptr.
+  // TODO(cjihrig): Check for buffer overflows.
+  size_t nread;
+  uvwasi_errno_t err = uvwasi_fd_read(&wasi->uvw_,
+                                      fd,
+                                      nullptr,
+                                      iovs_len,
+                                      &nread);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(nread, nread_ptr);
+
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -682,7 +742,35 @@ void WASI::FdTell(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::FdWrite(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t iovs_ptr;
+  uint32_t iovs_len;
+  uint32_t nwritten_ptr;
+  RETURN_IF_BAD_ARG_COUNT(args, 4);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, iovs_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, iovs_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, nwritten_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "fd_write(%d, %d, %d, %d)\n",
+             fd,
+             iovs_ptr,
+             iovs_len,
+             nwritten_ptr);
+  // TODO(cjihrig): Handle iovs properly instead of passing nullptr.
+  // TODO(cjihrig): Check for buffer overflows.
+  size_t nwritten;
+  uvwasi_errno_t err = uvwasi_fd_write(&wasi->uvw_,
+                                       fd,
+                                       nullptr,
+                                       iovs_len,
+                                       &nwritten);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(nwritten, nwritten_ptr);
+
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -713,17 +801,122 @@ void WASI::PathCreateDirectory(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::PathFilestatGet(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t flags;
+  uint32_t path_ptr;
+  uint32_t path_len;
+  uint32_t buf_ptr;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 5);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, buf_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_filestat_get(%d, %d, %d, %d, %d)\n",
+             fd,
+             path_ptr,
+             path_len);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  uvwasi_filestat_t stats;
+  uvwasi_errno_t err = uvwasi_path_filestat_get(&wasi->uvw_,
+                                                fd,
+                                                flags,
+                                                &memory[path_ptr],
+                                                path_len,
+                                                &stats);
+  // TODO(cjihrig): Check for buffer overflows and write output.
+  args.GetReturnValue().Set(err);
 }
 
 
 void WASI::PathFilestatSetTimes(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t flags;
+  uint32_t path_ptr;
+  uint32_t path_len;
+  uint64_t st_atim;
+  uint64_t st_mtim;
+  uint16_t fst_flags;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 7);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, path_len);
+  UNWRAP_BIGINT_OR_RETURN(args, args[4], Uint64, st_atim);
+  UNWRAP_BIGINT_OR_RETURN(args, args[5], Uint64, st_mtim);
+  CHECK_TO_TYPE_OR_RETURN(args, args[6], Uint32, fst_flags);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_filestat_set_times(%d, %d, %d, %d, %d, %d, %d)\n",
+             fd,
+             flags,
+             path_ptr,
+             path_len,
+             st_atim,
+             st_mtim,
+             fst_flags);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflow when reading path.
+  uvwasi_errno_t err = uvwasi_path_filestat_set_times(&wasi->uvw_,
+                                                      fd,
+                                                      flags,
+                                                      &memory[path_ptr],
+                                                      path_len,
+                                                      st_atim,
+                                                      st_mtim,
+                                                      fst_flags);
+  args.GetReturnValue().Set(err);
 }
 
 
 void WASI::PathLink(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t old_fd;
+  uint32_t old_flags;
+  uint32_t old_path_ptr;
+  uint32_t old_path_len;
+  uint32_t new_fd;
+  uint32_t new_path_ptr;
+  uint32_t new_path_len;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 7);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, old_fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, old_flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, old_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, old_path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, new_fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[5], Uint32, new_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[6], Uint32, new_path_len);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_link(%d, %d, %d, %d, %d, %d, %d)\n",
+             old_fd,
+             old_flags,
+             old_path_ptr,
+             old_path_len,
+             new_fd,
+             new_path_ptr,
+             new_path_len);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflow when reading path.
+  uvwasi_errno_t err = uvwasi_path_link(&wasi->uvw_,
+                                        old_fd,
+                                        old_flags,
+                                        &memory[old_path_ptr],
+                                        old_path_len,
+                                        new_fd,
+                                        &memory[new_path_ptr],
+                                        new_path_len);
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -783,7 +976,42 @@ void WASI::PathOpen(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::PathReadlink(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t fd;
+  uint32_t path_ptr;
+  uint32_t path_len;
+  uint32_t buf_ptr;
+  uint32_t buf_len;
+  uint32_t bufused_ptr;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 6);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, buf_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, buf_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[5], Uint32, bufused_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_readlink(%d, %d, %d, %d, %d, %d)\n",
+             fd,
+             path_ptr,
+             path_len,
+             buf_ptr,
+             buf_len,
+             bufused_ptr);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflows, don't pass nulls, write output.
+  size_t bufused;
+  uvwasi_errno_t err = uvwasi_path_readlink(&wasi->uvw_,
+                                        fd,
+                                        &memory[path_ptr],
+                                        path_len,
+                                        nullptr,
+                                        buf_len,
+                                        &bufused);
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -814,12 +1042,76 @@ void WASI::PathRemoveDirectory(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::PathRename(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t old_fd;
+  uint32_t old_path_ptr;
+  uint32_t old_path_len;
+  uint32_t new_fd;
+  uint32_t new_path_ptr;
+  uint32_t new_path_len;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 6);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, old_fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, old_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, old_path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, new_fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, new_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[5], Uint32, new_path_len);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_rename(%d, %d, %d, %d, %d, %d)\n",
+             old_fd,
+             old_path_ptr,
+             old_path_len,
+             new_fd,
+             new_path_ptr,
+             new_path_len);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflows.
+  uvwasi_errno_t err = uvwasi_path_rename(&wasi->uvw_,
+                                          old_fd,
+                                          &memory[old_path_ptr],
+                                          old_path_len,
+                                          new_fd,
+                                          &memory[new_path_ptr],
+                                          new_path_len);
+  args.GetReturnValue().Set(err);
 }
 
 
 void WASI::PathSymlink(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t old_path_ptr;
+  uint32_t old_path_len;
+  uint32_t fd;
+  uint32_t new_path_ptr;
+  uint32_t new_path_len;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 5);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, old_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, old_path_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, fd);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, new_path_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, new_path_len);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "path_symlink(%d, %d, %d, %d, %d)\n",
+             old_path_ptr,
+             old_path_len,
+             fd,
+             new_path_ptr,
+             new_path_len);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflows.
+  uvwasi_errno_t err = uvwasi_path_symlink(&wasi->uvw_,
+                                           &memory[old_path_ptr],
+                                           old_path_len,
+                                           fd,
+                                           &memory[new_path_ptr],
+                                           new_path_len);
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -846,6 +1138,27 @@ void WASI::PathUnlinkFile(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::PollOneoff(const FunctionCallbackInfo<Value>& args) {
+  WASI* wasi;
+  uint32_t in_ptr;
+  uint32_t out_ptr;
+  uint32_t nsubscriptions;
+  uint32_t nevents_ptr;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 4);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, in_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, out_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, nsubscriptions);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, nevents_ptr);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "poll_oneoff(%d, %d, %d, %d)\n",
+             in_ptr,
+             out_ptr,
+             nsubscriptions,
+             nevents_ptr);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Implement this.
   args.GetReturnValue().Set(UVWASI_ENOTSUP);
 }
 
@@ -874,7 +1187,22 @@ void WASI::ProcRaise(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::RandomGet(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t buf_ptr;
+  uint32_t buf_len;
+  char* memory;
+  size_t mem_size;
+  RETURN_IF_BAD_ARG_COUNT(args, 2);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, buf_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, buf_len);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi, "random_get(%d, %d)\n", buf_ptr, buf_len);
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  // TODO(cjihrig): Check for buffer overflow.
+  uvwasi_errno_t err = uvwasi_random_get(&wasi->uvw_,
+                                         &memory[buf_ptr],
+                                         buf_len);
+  args.GetReturnValue().Set(err);
 }
 
 
@@ -889,17 +1217,71 @@ void WASI::SchedYield(const FunctionCallbackInfo<Value>& args) {
 
 
 void WASI::SockRecv(const FunctionCallbackInfo<Value>& args) {
+  WASI* wasi;
+  uint32_t sock;
+  uint32_t ri_data_ptr;
+  uint32_t ri_data_len;
+  uint16_t ri_flags;
+  uint32_t ro_datalen_ptr;
+  uint16_t ro_flags;
+  RETURN_IF_BAD_ARG_COUNT(args, 6);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, sock);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, ri_data_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, ri_data_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, ri_flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, ro_datalen_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[5], Uint32, ro_flags);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "sock_recv(%d, %d, %d, %d, %d, %d)\n",
+             sock,
+             ri_data_ptr,
+             ri_data_len,
+             ri_flags,
+             ro_datalen_ptr,
+             ro_flags);
+  // TODO(cjihrig): Implement this.
   args.GetReturnValue().Set(UVWASI_ENOTSUP);
 }
 
 
 void WASI::SockSend(const FunctionCallbackInfo<Value>& args) {
+  WASI* wasi;
+  uint32_t sock;
+  uint32_t si_data_ptr;
+  uint32_t si_data_len;
+  uint16_t si_flags;
+  uint32_t so_datalen;
+  RETURN_IF_BAD_ARG_COUNT(args, 5);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, sock);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, si_data_ptr);
+  CHECK_TO_TYPE_OR_RETURN(args, args[2], Uint32, si_data_len);
+  CHECK_TO_TYPE_OR_RETURN(args, args[3], Uint32, si_flags);
+  CHECK_TO_TYPE_OR_RETURN(args, args[4], Uint32, so_datalen);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi,
+             "sock_send(%d, %d, %d, %d, %d)\n",
+             sock,
+             si_data_ptr,
+             si_data_len,
+             si_flags,
+             so_datalen);
+  // TODO(cjihrig): Implement this.
   args.GetReturnValue().Set(UVWASI_ENOTSUP);
 }
 
 
 void WASI::SockShutdown(const FunctionCallbackInfo<Value>& args) {
-  args.GetReturnValue().Set(UVWASI_ENOTSUP);
+  WASI* wasi;
+  uint32_t sock;
+  uint8_t how;
+  RETURN_IF_BAD_ARG_COUNT(args, 2);
+  CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, sock);
+  CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, how);
+  ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
+  WASI_DEBUG(wasi, "sock_shutdown(%d, %d)\n", sock, how);
+  uvwasi_errno_t err = uvwasi_sock_shutdown(&wasi->uvw_, sock, how);
+  args.GetReturnValue().Set(err);
 }
 
 
