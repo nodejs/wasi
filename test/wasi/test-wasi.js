@@ -36,4 +36,5 @@ if (process.argv[2] === 'wasi-child') {
   runWASI({ test: 'cant_dotdot' });
   runWASI({ test: 'exitcode', exitCode: 120 });
   runWASI({ test: 'fd_prestat_get_refresh' });
+  runWASI({ test: 'read_file' });
 }
