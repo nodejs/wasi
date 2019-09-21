@@ -604,6 +604,8 @@ void WASI::FdRead(const FunctionCallbackInfo<Value>& args) {
   uint32_t iovs_ptr;
   uint32_t iovs_len;
   uint32_t nread_ptr;
+  char* memory;
+  size_t mem_size;
   RETURN_IF_BAD_ARG_COUNT(args, 4);
   CHECK_TO_TYPE_OR_RETURN(args, args[0], Uint32, fd);
   CHECK_TO_TYPE_OR_RETURN(args, args[1], Uint32, iovs_ptr);
@@ -616,17 +618,37 @@ void WASI::FdRead(const FunctionCallbackInfo<Value>& args) {
              iovs_ptr,
              iovs_len,
              nread_ptr);
-  // TODO(cjihrig): Handle iovs properly instead of passing nullptr.
+  GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
   // TODO(cjihrig): Check for buffer overflows.
+  uvwasi_iovec_t* iovs =
+    static_cast<uvwasi_iovec_t*>(calloc(iovs_len, sizeof(*iovs)));
+
+  if (iovs == nullptr) {
+    args.GetReturnValue().Set(UVWASI_ENOMEM);
+    return;
+  }
+
+  for (uint32_t i = 0; i < iovs_len; ++i) {
+    uint32_t buf_ptr;
+    uint32_t buf_len;
+
+    wasi->readUInt32(&buf_ptr, iovs_ptr);
+    wasi->readUInt32(&buf_len, iovs_ptr + 4);
+    iovs_ptr += 8;
+    iovs[i].buf = static_cast<void*>(&memory[buf_ptr]);
+    iovs[i].buf_len = buf_len;
+  }
+
   size_t nread;
   uvwasi_errno_t err = uvwasi_fd_read(&wasi->uvw_,
                                       fd,
-                                      nullptr,
+                                      iovs,
                                       iovs_len,
                                       &nread);
   if (err == UVWASI_ESUCCESS)
     err = wasi->writeUInt32(nread, nread_ptr);
 
+  free(iovs);
   args.GetReturnValue().Set(err);
 }
 
@@ -1291,6 +1313,24 @@ void WASI::_SetMemory(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsObject());
   ASSIGN_OR_RETURN_UNWRAP(&wasi, args.This());
   wasi->memory_.Reset(wasi->env()->isolate(), args[0].As<Object>());
+}
+
+
+inline uvwasi_errno_t WASI::readUInt32(uint32_t* value, uint32_t offset) {
+  char* memory;
+  size_t mem_size;
+  uvwasi_errno_t err = this->backingStore(&memory, &mem_size);
+
+  if (err != UVWASI_ESUCCESS)
+    return err;
+  if (offset + 4 > mem_size)
+    return UVWASI_EOVERFLOW;
+
+  *value = (memory[offset] & 0xFF) |
+           ((memory[offset + 1] & 0xFF) << 8) |
+           ((memory[offset + 2] & 0xFF) << 16) |
+           ((memory[offset + 3] & 0xFF) << 24);
+  return UVWASI_ESUCCESS;
 }
 
 
