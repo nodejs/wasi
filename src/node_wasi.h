@@ -76,6 +76,7 @@ class WASI : public BaseObject {
 
  private:
   ~WASI() override;
+  inline uvwasi_errno_t readUInt32(uint32_t* value, uint32_t offset);
   inline uvwasi_errno_t writeUInt8(uint8_t value, uint32_t offset);
   inline uvwasi_errno_t writeUInt16(uint16_t value, uint32_t offset);
   inline uvwasi_errno_t writeUInt32(uint32_t value, uint32_t offset);
