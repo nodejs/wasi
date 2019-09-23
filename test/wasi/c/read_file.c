@@ -7,7 +7,8 @@ int main() {
 
   char c = fgetc(file);
   while (c != EOF) {
-    assert(fputc(c, stdout) != EOF);
+    int wrote = fputc(c, stdout);
+    assert(wrote != EOF);
     c = fgetc(file);
   }
 }
