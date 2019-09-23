@@ -124,16 +124,12 @@ static uvwasi_errno_t uvwasi__get_type_and_rights(uv_file fd,
   } else if (S_ISSOCK(mode)) {
     handle_type = uv_guess_handle(fd);
 
-    if (handle_type == UV_TCP) {
+    if (handle_type == UV_TCP)
       *type = UVWASI_FILETYPE_SOCKET_STREAM;
-    } else if (handle_type == UV_UDP) {
+    else if (handle_type == UV_UDP)
       *type = UVWASI_FILETYPE_SOCKET_DGRAM;
-    } else {
+    else
       *type = UVWASI_FILETYPE_UNKNOWN;
-      *rights_base = 0;
-      *rights_inheriting = 0;
-      return UVWASI_EINVAL;
-    }
 
     *rights_base = UVWASI__RIGHTS_SOCKET_BASE;
     *rights_inheriting = UVWASI__RIGHTS_SOCKET_INHERITING;
@@ -239,6 +235,9 @@ static uvwasi_errno_t uvwasi__fd_table_insert(struct uvwasi_fd_table_t* table,
 uvwasi_errno_t uvwasi_fd_table_init(struct uvwasi_fd_table_t* table,
                                     uint32_t init_size) {
   struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_filetype_t type;
+  uvwasi_rights_t base;
+  uvwasi_rights_t inheriting;
   uvwasi_errno_t err;
   uvwasi_fd_t i;
 
@@ -255,13 +254,21 @@ uvwasi_errno_t uvwasi_fd_table_init(struct uvwasi_fd_table_t* table,
 
   /* Create the stdio FDs. */
   for (i = 0; i < 3; ++i) {
+    err = uvwasi__get_type_and_rights(i,
+                                      UV_FS_O_RDWR,
+                                      &type,
+                                      &base,
+                                      &inheriting);
+    if (err != UVWASI_ESUCCESS)
+      goto error_exit;
+
     err = uvwasi__fd_table_insert(table,
                                   i,
                                   "",
                                   "",
-                                  UVWASI_FILETYPE_UNKNOWN,
-                                  0,
-                                  0,
+                                  type,
+                                  base,
+                                  inheriting,
                                   0,
                                   &wrap);
     if (err != UVWASI_ESUCCESS)
