@@ -444,7 +444,23 @@ void WASI::FdFilestatGet(const FunctionCallbackInfo<Value>& args) {
   uvwasi_filestat_t stats;
   uvwasi_errno_t err = uvwasi_fd_filestat_get(&wasi->uvw_, fd, &stats);
 
-  // TODO(cjihrig): Check for buffer overflow and write result to memory.
+  // TODO(cjihrig): Check for buffer overflows.
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_dev, buf);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_ino, buf + 8);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt8(stats.st_filetype, buf + 16);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(stats.st_nlink, buf + 20);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_size, buf + 24);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_atim, buf + 32);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_mtim, buf + 40);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_ctim, buf + 48);
 
   args.GetReturnValue().Set(err);
 }
@@ -884,7 +900,24 @@ void WASI::PathFilestatGet(const FunctionCallbackInfo<Value>& args) {
                                                 &memory[path_ptr],
                                                 path_len,
                                                 &stats);
-  // TODO(cjihrig): Check for buffer overflows and write output.
+  // TODO(cjihrig): Check for buffer overflows.
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_dev, buf_ptr);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_ino, buf_ptr + 8);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt8(stats.st_filetype, buf_ptr + 16);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt32(stats.st_nlink, buf_ptr + 20);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_size, buf_ptr + 24);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_atim, buf_ptr + 32);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_mtim, buf_ptr + 40);
+  if (err == UVWASI_ESUCCESS)
+    err = wasi->writeUInt64(stats.st_ctim, buf_ptr + 48);
+
   args.GetReturnValue().Set(err);
 }
 
