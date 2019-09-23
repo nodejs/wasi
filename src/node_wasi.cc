@@ -81,7 +81,7 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   CHECK_EQ(args.Length(), 3);
   CHECK(args[0]->IsArray());
   CHECK(args[1]->IsArray());
-  // CHECK(args[2]->IsArray());
+  CHECK(args[2]->IsArray());
 
   Environment* env = Environment::GetCurrent(args);
   Local<Context> context = env->context();
@@ -113,12 +113,23 @@ void WASI::New(const FunctionCallbackInfo<Value>& args) {
   }
   options.envp[envc] = nullptr;
 
-  // TODO(cjihrig): Process the preopens for real.
-  options.preopenc = 1;
-  options.preopens =
-    static_cast<uvwasi_preopen_t*>(calloc(1, sizeof(uvwasi_preopen_t)));
-  options.preopens[0].mapped_path = "/sandbox";
-  options.preopens[0].real_path = ".";
+  Local<Array> preopens = args[2].As<Array>();
+  CHECK_EQ(preopens->Length() % 2, 0);
+  options.preopenc = preopens->Length() / 2;
+  options.preopens = static_cast<uvwasi_preopen_t*>(
+    calloc(options.preopenc, sizeof(uvwasi_preopen_t)));
+  int index = 0;
+  for (uint32_t i = 0; i < preopens->Length(); i += 2) {
+    auto mapped = preopens->Get(context, i).ToLocalChecked();
+    auto real = preopens->Get(context, i + 1).ToLocalChecked();
+    CHECK(mapped->IsString());
+    CHECK(real->IsString());
+    node::Utf8Value mapped_path(env->isolate(), mapped);
+    node::Utf8Value real_path(env->isolate(), real);
+    options.preopens[index].mapped_path = strdup(*mapped_path);
+    options.preopens[index].real_path = strdup(*real_path);
+    index++;
+  }
 
   new WASI(env, args.This(), &options);
 

@@ -2,11 +2,18 @@
 require('../common');
 
 if (process.argv[2] === 'wasi-child') {
+  const fixtures = require('../common/fixtures');
   const fs = require('fs');
   const path = require('path');
   const { WASI } = require('wasi');
   const wasmDir = path.join(__dirname, 'wasm');
-  const wasi = new WASI({ args: [], env: process.env });
+  const wasi = new WASI({
+    args: [],
+    env: process.env,
+    preopens: {
+      '/sandbox': fixtures.path('wasi')
+    }
+  });
   const importObject = { wasi_unstable: wasi.wasiImport };
   const modulePath = path.join(wasmDir, `${process.argv[3]}.wasm`);
   const buffer = fs.readFileSync(modulePath);
