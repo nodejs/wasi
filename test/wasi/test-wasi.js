@@ -1,13 +1,12 @@
 'use strict';
-const common = require('../common');
+require('../common');
 
 if (process.argv[2] === 'wasi-child') {
   const fs = require('fs');
   const path = require('path');
   const { WASI } = require('wasi');
   const wasmDir = path.join(__dirname, 'wasm');
-  const memory = new WebAssembly.Memory({ initial: 3 });
-  const wasi = new WASI({ args: [], env: process.env, memory });
+  const wasi = new WASI({ args: [], env: process.env });
   const importObject = { wasi_unstable: wasi.wasiImport };
   const modulePath = path.join(wasmDir, `${process.argv[3]}.wasm`);
   const buffer = fs.readFileSync(modulePath);
@@ -23,18 +22,20 @@ if (process.argv[2] === 'wasi-child') {
 
   function runWASI(options) {
     console.log('executing', options.test);
-    const child = cp.fork(__filename, ['wasi-child', options.test], {
-      execArgv: ['--experimental-wasm-bigint']
-    });
+    const child = cp.spawnSync(process.execPath, [
+      '--experimental-wasm-bigint',
+      __filename,
+      'wasi-child',
+      options.test
+    ]);
 
-    child.on('exit', common.mustCall((code, signal) => {
-      assert.strictEqual(code, options.exitCode || 0);
-      assert.strictEqual(signal, null);
-    }));
+    assert.strictEqual(child.status, options.exitCode || 0);
+    assert.strictEqual(child.signal, null);
+    assert.strictEqual(child.stdout.toString(), options.stdout || '');
   }
 
   runWASI({ test: 'cant_dotdot' });
   runWASI({ test: 'exitcode', exitCode: 120 });
   runWASI({ test: 'fd_prestat_get_refresh' });
-  runWASI({ test: 'read_file' });
+  runWASI({ test: 'read_file', stdout: 'hello from input.txt\n' });
 }
