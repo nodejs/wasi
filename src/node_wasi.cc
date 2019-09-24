@@ -1,4 +1,5 @@
 #include "env-inl.h"
+#include "base_object-inl.h"
 #include "debug_utils.h"
 #include "util-inl.h"
 #include "node.h"
