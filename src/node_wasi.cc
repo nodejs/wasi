@@ -10,6 +10,12 @@
 namespace node {
 namespace wasi {
 
+static inline bool is_access_oob(size_t mem_size,
+                                 uint32_t offset,
+                                 uint32_t buf_size) {
+  return offset + buf_size > mem_size;
+}
+
 #define WASI_DEBUG(wasi, format_string, ...)                                  \
   Debug((wasi)->env(), DebugCategory::WASI, (format_string), ##__VA_ARGS__)
 
@@ -50,12 +56,9 @@ namespace wasi {
     }                                                                         \
   } while (0)
 
-#define IS_ACCESS_OOB(mem_size, offset, buf_size)                             \
-  ((offset) + (buf_size) > (mem_size))
-
 #define CHECK_BOUNDS_OR_RETURN(args, mem_size, offset, buf_size)              \
   do {                                                                        \
-    if (IS_ACCESS_OOB((mem_size), (offset), (buf_size))) {                    \
+    if (is_access_oob((mem_size), (offset), (buf_size))) {                    \
       (args).GetReturnValue().Set(UVWASI_EOVERFLOW);                          \
       return;                                                                 \
     }                                                                         \
@@ -576,7 +579,7 @@ void WASI::FdPread(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, iovs_ptr);
     wasi->readUInt32(memory, &buf_len, iovs_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(iovs);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -691,7 +694,7 @@ void WASI::FdPwrite(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, iovs_ptr);
     wasi->readUInt32(memory, &buf_len, iovs_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(iovs);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -755,7 +758,7 @@ void WASI::FdRead(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, iovs_ptr);
     wasi->readUInt32(memory, &buf_len, iovs_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(iovs);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -942,7 +945,7 @@ void WASI::FdWrite(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, iovs_ptr);
     wasi->readUInt32(memory, &buf_len, iovs_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(iovs);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -1488,7 +1491,7 @@ void WASI::SockRecv(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, ri_data_ptr);
     wasi->readUInt32(memory, &buf_len, ri_data_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(ri_data);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -1559,7 +1562,7 @@ void WASI::SockSend(const FunctionCallbackInfo<Value>& args) {
     wasi->readUInt32(memory, &buf_ptr, si_data_ptr);
     wasi->readUInt32(memory, &buf_len, si_data_ptr + 4);
 
-    if (IS_ACCESS_OOB(mem_size, buf_ptr, buf_len)) {
+    if (is_access_oob(mem_size, buf_ptr, buf_len)) {
       free(si_data);
       args.GetReturnValue().Set(UVWASI_EOVERFLOW);
       return;
@@ -1608,7 +1611,7 @@ void WASI::_SetMemory(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-inline void WASI::readUInt32(char* memory, uint32_t* value, uint32_t offset) {
+void WASI::readUInt32(char* memory, uint32_t* value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   CHECK_NOT_NULL(value);
   *value = (memory[offset] & 0xFF) |
@@ -1618,20 +1621,20 @@ inline void WASI::readUInt32(char* memory, uint32_t* value, uint32_t offset) {
 }
 
 
-inline void WASI::writeUInt8(char* memory, uint8_t value, uint32_t offset) {
+void WASI::writeUInt8(char* memory, uint8_t value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   memory[offset] = value & 0xFF;
 }
 
 
-inline void WASI::writeUInt16(char* memory, uint16_t value, uint32_t offset) {
+void WASI::writeUInt16(char* memory, uint16_t value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   memory[offset++] = value & 0xFF;
   memory[offset] = (value >> 8) & 0xFF;
 }
 
 
-inline void WASI::writeUInt32(char* memory, uint32_t value, uint32_t offset) {
+void WASI::writeUInt32(char* memory, uint32_t value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   memory[offset++] = value & 0xFF;
   memory[offset++] = (value >> 8) & 0xFF;
@@ -1640,7 +1643,7 @@ inline void WASI::writeUInt32(char* memory, uint32_t value, uint32_t offset) {
 }
 
 
-inline void WASI::writeUInt64(char* memory, uint64_t value, uint32_t offset) {
+void WASI::writeUInt64(char* memory, uint64_t value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   memory[offset++] = value & 0xFF;
   memory[offset++] = (value >> 8) & 0xFF;
@@ -1739,13 +1742,6 @@ static void Initialize(Local<Object> target,
               tmpl->GetFunction(context).ToLocalChecked()).ToChecked();
 }
 
-#undef WASI_DEBUG
-#undef RETURN_IF_BAD_ARG_COUNT
-#undef CHECK_TO_TYPE_OR_RETURN
-#undef UNWRAP_BIGINT_OR_RETURN
-#undef GET_BACKING_STORE_OR_RETURN
-#undef IS_ACCESS_OOB
-#undef CHECK_BOUNDS_OR_RETURN
 
 }  // namespace wasi
 }  // namespace node
