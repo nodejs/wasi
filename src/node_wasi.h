@@ -76,11 +76,11 @@ class WASI : public BaseObject {
 
  private:
   ~WASI() override;
-  inline uvwasi_errno_t readUInt32(uint32_t* value, uint32_t offset);
-  inline uvwasi_errno_t writeUInt8(uint8_t value, uint32_t offset);
-  inline uvwasi_errno_t writeUInt16(uint16_t value, uint32_t offset);
-  inline uvwasi_errno_t writeUInt32(uint32_t value, uint32_t offset);
-  inline uvwasi_errno_t writeUInt64(uint64_t value, uint32_t offset);
+  inline void readUInt32(char* memory, uint32_t* value, uint32_t offset);
+  inline void writeUInt8(char* memory, uint8_t value, uint32_t offset);
+  inline void writeUInt16(char* memory, uint16_t value, uint32_t offset);
+  inline void writeUInt32(char* memory, uint32_t value, uint32_t offset);
+  inline void writeUInt64(char* memory, uint64_t value, uint32_t offset);
   uvwasi_errno_t backingStore(char** store, size_t* byte_length);
   uvwasi_t uvw_;
   v8::Persistent<v8::Object> memory_;
