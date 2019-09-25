@@ -1,11 +1,16 @@
 'use strict';
-require('../common');
+const common = require('../common');
 
 if (process.argv[2] === 'wasi-child') {
   const fixtures = require('../common/fixtures');
   const tmpdir = require('../../test/common/tmpdir');
   const fs = require('fs');
   const path = require('path');
+
+  common.expectWarning('ExperimentalWarning',
+                       'WASI is an experimental feature. This feature could ' +
+                       'change at any time');
+
   const { WASI } = require('wasi');
   tmpdir.refresh();
   const wasmDir = path.join(__dirname, 'wasm');
@@ -38,6 +43,7 @@ if (process.argv[2] === 'wasi-child') {
       opts.input = options.stdin;
 
     const child = cp.spawnSync(process.execPath, [
+      '--experimental-wasi',
       '--experimental-wasm-bigint',
       __filename,
       'wasi-child',
