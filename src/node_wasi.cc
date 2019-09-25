@@ -81,13 +81,12 @@ using v8::Value;
 WASI::WASI(Environment* env,
            Local<Object> object,
            uvwasi_options_t* options) : BaseObject(env, object) {
-  /* uvwasi_errno_t err = */ uvwasi_init(&uvw_, options);
+  CHECK_EQ(uvwasi_init(&uvw_, options), UVWASI_ESUCCESS);
   memory_.Reset();
 }
 
 
 WASI::~WASI() {
-  /* TODO(cjihrig): Free memory. */
   uvwasi_destroy(&uvw_);
 }
 
