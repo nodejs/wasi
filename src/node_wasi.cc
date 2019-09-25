@@ -74,6 +74,7 @@ WASI::WASI(Environment* env,
 
 WASI::~WASI() {
   /* TODO(cjihrig): Free memory. */
+  uvwasi_destroy(&uvw_);
 }
 
 
