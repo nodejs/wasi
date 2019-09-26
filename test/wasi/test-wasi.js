@@ -59,10 +59,12 @@ if (process.argv[2] === 'wasi-child') {
   runWASI({ test: 'clock_getres' });
   runWASI({ test: 'exitcode', exitCode: 120 });
   runWASI({ test: 'fd_prestat_get_refresh' });
+  runWASI({ test: 'follow_symlink', stdout: 'hello from input.txt\n' });
   // runWASI({ test: 'getentropy' });
   runWASI({ test: 'getrusage' });
   runWASI({ test: 'gettimeofday' });
   runWASI({ test: 'notdir' });
+  // runWASI({ test: 'poll' });
   runWASI({ test: 'preopen_populates' });
   runWASI({ test: 'read_file', stdout: 'hello from input.txt\n' });
   runWASI({
@@ -71,5 +73,7 @@ if (process.argv[2] === 'wasi-child') {
   });
   runWASI({ test: 'stat' });
   runWASI({ test: 'stdin', stdin: 'hello world', stdout: 'hello world' });
+  runWASI({ test: 'symlink_escape' });
+  runWASI({ test: 'symlink_loop' });
   runWASI({ test: 'write_file' });
 }
