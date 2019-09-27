@@ -76,7 +76,10 @@ class WASI : public BaseObject {
 
  private:
   ~WASI() override;
+  inline void readUInt8(char* memory, uint8_t* value, uint32_t offset);
+  inline void readUInt16(char* memory, uint16_t* value, uint32_t offset);
   inline void readUInt32(char* memory, uint32_t* value, uint32_t offset);
+  inline void readUInt64(char* memory, uint64_t* value, uint32_t offset);
   inline void writeUInt8(char* memory, uint8_t value, uint32_t offset);
   inline void writeUInt16(char* memory, uint16_t value, uint32_t offset);
   inline void writeUInt32(char* memory, uint32_t value, uint32_t offset);
