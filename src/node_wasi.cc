@@ -1378,17 +1378,74 @@ void WASI::PollOneoff(const FunctionCallbackInfo<Value>& args) {
              nsubscriptions,
              nevents_ptr);
   GET_BACKING_STORE_OR_RETURN(wasi, args, &memory, &mem_size);
+  CHECK_BOUNDS_OR_RETURN(args, mem_size, in_ptr, nsubscriptions * 56);
+  CHECK_BOUNDS_OR_RETURN(args, mem_size, out_ptr, nsubscriptions * 32);
   CHECK_BOUNDS_OR_RETURN(args, mem_size, nevents_ptr, 4);
-  // TODO(cjihrig): Handle the 'in' and 'out' parameters.
+
+  uvwasi_subscription_t* in =
+    static_cast<uvwasi_subscription_t*>(calloc(nsubscriptions, sizeof(*in)));
+
+  if (in == nullptr) {
+    args.GetReturnValue().Set(UVWASI_ENOMEM);
+    return;
+  }
+
+  uvwasi_event_t* out =
+    static_cast<uvwasi_event_t*>(calloc(nsubscriptions, sizeof(*out)));
+
+  if (out == nullptr) {
+    free(in);
+    args.GetReturnValue().Set(UVWASI_ENOMEM);
+    return;
+  }
+
+  for (uint32_t i = 0; i < nsubscriptions; ++i) {
+    uvwasi_subscription_t sub = in[i];
+    wasi->readUInt64(memory, &sub.userdata, in_ptr);
+    wasi->readUInt8(memory, &sub.type, in_ptr + 8);
+
+    if (sub.type == UVWASI_EVENTTYPE_CLOCK) {
+      wasi->readUInt64(memory, &sub.u.clock.identifier, in_ptr + 16);
+      wasi->readUInt32(memory, &sub.u.clock.clock_id, in_ptr + 24);
+      wasi->readUInt64(memory, &sub.u.clock.timeout, in_ptr + 32);
+      wasi->readUInt64(memory, &sub.u.clock.precision, in_ptr + 40);
+      wasi->readUInt16(memory, &sub.u.clock.flags, in_ptr + 48);
+    } else if (sub.type == UVWASI_EVENTTYPE_FD_READ ||
+               sub.type == UVWASI_EVENTTYPE_FD_WRITE) {
+      wasi->readUInt32(memory, &sub.u.fd_readwrite.fd, in_ptr + 16);
+    }
+
+    in_ptr += 56;
+  }
+
   size_t nevents;
   uvwasi_errno_t err = uvwasi_poll_oneoff(&wasi->uvw_,
-                                          nullptr,  // 'in'
-                                          nullptr,  // 'out'
+                                          in,
+                                          out,
                                           nsubscriptions,
                                           &nevents);
-  if (err == UVWASI_ESUCCESS)
+  if (err == UVWASI_ESUCCESS) {
     wasi->writeUInt32(memory, nevents, nevents_ptr);
 
+    for (uint32_t i = 0; i < nsubscriptions; ++i) {
+      uvwasi_event_t event = out[i];
+
+      wasi->writeUInt64(memory, event.userdata, out_ptr);
+      wasi->writeUInt16(memory, event.error, out_ptr + 8);
+      wasi->writeUInt8(memory, event.type, out_ptr + 10);
+
+      if (event.type == UVWASI_EVENTTYPE_FD_READ ||
+          event.type == UVWASI_EVENTTYPE_FD_WRITE) {
+        wasi->writeUInt64(memory, event.u.fd_readwrite.nbytes, out_ptr + 16);
+        wasi->writeUInt16(memory, event.u.fd_readwrite.flags, out_ptr + 24);
+      }
+
+      out_ptr += 32;
+    }
+  }
+
+  free(in);
+  free(out);
   args.GetReturnValue().Set(err);
 }
 
@@ -1611,6 +1668,21 @@ void WASI::_SetMemory(const FunctionCallbackInfo<Value>& args) {
 }
 
 
+void WASI::readUInt8(char* memory, uint8_t* value, uint32_t offset) {
+  CHECK_NOT_NULL(memory);
+  CHECK_NOT_NULL(value);
+  *value = memory[offset] & 0xFF;
+}
+
+
+void WASI::readUInt16(char* memory, uint16_t* value, uint32_t offset) {
+  CHECK_NOT_NULL(memory);
+  CHECK_NOT_NULL(value);
+  *value = (memory[offset] & 0xFF) |
+           ((memory[offset + 1] & 0xFF) << 8);
+}
+
+
 void WASI::readUInt32(char* memory, uint32_t* value, uint32_t offset) {
   CHECK_NOT_NULL(memory);
   CHECK_NOT_NULL(value);
@@ -1618,6 +1690,21 @@ void WASI::readUInt32(char* memory, uint32_t* value, uint32_t offset) {
            ((memory[offset + 1] & 0xFF) << 8) |
            ((memory[offset + 2] & 0xFF) << 16) |
            ((memory[offset + 3] & 0xFF) << 24);
+}
+
+
+void WASI::readUInt64(char* memory, uint64_t* value, uint32_t offset) {
+  CHECK_NOT_NULL(memory);
+  CHECK_NOT_NULL(value);
+  uint64_t low = (memory[offset] & 0xFF) |
+                 ((memory[offset + 1] & 0xFF) << 8) |
+                 ((memory[offset + 2] & 0xFF) << 16) |
+                 ((memory[offset + 3] & 0xFF) << 24);
+  uint64_t high = (memory[offset + 4] & 0xFF) |
+                  ((memory[offset + 5] & 0xFF) << 8) |
+                  ((memory[offset + 6] & 0xFF) << 16) |
+                  ((memory[offset + 7] & 0xFF) << 24);
+  *value = (high << 32) + low;
 }
 
 
