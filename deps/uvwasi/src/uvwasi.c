@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 
 #ifndef _WIN32
 # include <sched.h>
@@ -8,11 +9,14 @@
 # define SLASH_STR "/"
 # define IS_SLASH(c) ((c) == '/')
 #else
+# include <dirent.h>
 # include <processthreadsapi.h>
 # define SLASH '\\'
 # define SLASH_STR "\\"
 # define IS_SLASH(c) ((c) == '/' || (c) == '\\')
 #endif /* _WIN32 */
+
+#define UVWASI__READDIR_NUM_ENTRIES 1
 
 #include "uvwasi.h"
 #include "uv.h"
@@ -388,7 +392,7 @@ uvwasi_errno_t uvwasi_clock_res_get(uvwasi_t* uvwasi,
 
   if (clock_id == UVWASI_CLOCK_MONOTONIC ||
       clock_id == UVWASI_CLOCK_REALTIME) {
-    *resolution = 1;  // Nanosecond precision.
+    *resolution = 1;  /* Nanosecond precision. */
     return UVWASI_ESUCCESS;
   } else if (clock_id == UVWASI_CLOCK_PROCESS_CPUTIME_ID ||
              clock_id == UVWASI_CLOCK_THREAD_CPUTIME_ID) {
@@ -443,15 +447,15 @@ uvwasi_errno_t uvwasi_clock_time_get(uvwasi_t* uvwasi,
 
 
 uvwasi_errno_t uvwasi_environ_get(uvwasi_t* uvwasi,
-                                  char** environ,
+                                  char** environment,
                                   char* environ_buf) {
   size_t i;
 
-  if (uvwasi == NULL || environ == NULL || environ_buf == NULL)
+  if (uvwasi == NULL || environment == NULL || environ_buf == NULL)
     return UVWASI_EINVAL;
 
   for (i = 0; i < uvwasi->envc; ++i) {
-    environ[i] = environ_buf + (uvwasi->env[i] - uvwasi->env_buf);
+    environment[i] = environ_buf + (uvwasi->env[i] - uvwasi->env_buf);
   }
 
   memcpy(environ_buf, uvwasi->env_buf, uvwasi->env_buf_size);
@@ -538,7 +542,46 @@ uvwasi_errno_t uvwasi_fd_allocate(uvwasi_t* uvwasi,
                                   uvwasi_fd_t fd,
                                   uvwasi_filesize_t offset,
                                   uvwasi_filesize_t len) {
-  return UVWASI_ENOTSUP;
+#if !defined(__POSIX__)
+  uv_fs_t req;
+  uint64_t st_size;
+#endif /* !__POSIX__ */
+  struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_errno_t err;
+  int r;
+
+  if (uvwasi == NULL)
+    return UVWASI_EINVAL;
+
+  err = uvwasi_fd_table_get(&uvwasi->fds,
+                            fd,
+                            &wrap,
+                            UVWASI_RIGHT_FD_ALLOCATE,
+                            0);
+  if (err != UVWASI_ESUCCESS)
+    return err;
+
+  /* Try to use posix_fallocate(). If that's not an option, fall back to the
+     race condition prone combination of fstat() + ftruncate(). */
+#if defined(__POSIX__)
+  r = posix_fallocate(wrap->fd, offset, len);
+  if (r != 0)
+    return uvwasi__translate_uv_error(uv_translate_sys_error(r));
+#else
+  r = uv_fs_fstat(NULL, &req, wrap->fd, NULL);
+  st_size = req.statbuf.st_size;
+  uv_fs_req_cleanup(&req);
+  if (r != 0)
+    return uvwasi__translate_uv_error(r);
+
+  if (st_size < offset + len) {
+    r = uv_fs_ftruncate(NULL, &req, wrap->fd, offset + len, NULL);
+    if (r != 0)
+      return uvwasi__translate_uv_error(r);
+  }
+#endif /* __POSIX__ */
+
+  return UVWASI_ESUCCESS;
 }
 
 
@@ -597,6 +640,7 @@ uvwasi_errno_t uvwasi_fd_fdstat_get(uvwasi_t* uvwasi,
                                     uvwasi_fdstat_t* buf) {
   struct uvwasi_fd_wrap_t* wrap;
   uvwasi_errno_t err;
+  int r;
 
   if (uvwasi == NULL || buf == NULL)
     return UVWASI_EINVAL;
@@ -608,8 +652,14 @@ uvwasi_errno_t uvwasi_fd_fdstat_get(uvwasi_t* uvwasi,
   buf->fs_filetype = wrap->type;
   buf->fs_rights_base = wrap->rights_base;
   buf->fs_rights_inheriting = wrap->rights_inheriting;
-  /* TODO(cjihrig): Missing support. Use F_GETFL on non-Windows. */
-  buf->fs_flags = 0;
+#ifdef _WIN32
+  buf->fs_flags = 0;  /* TODO(cjihrig): Missing Windows support. */
+#else
+  r = fcntl(wrap->fd, F_GETFL);
+  if (r < 0)
+    return uvwasi__translate_uv_error(uv_translate_sys_error(errno));
+  buf->fs_flags = r;
+#endif /* _WIN32 */
 
   return UVWASI_ESUCCESS;
 }
@@ -618,7 +668,57 @@ uvwasi_errno_t uvwasi_fd_fdstat_get(uvwasi_t* uvwasi,
 uvwasi_errno_t uvwasi_fd_fdstat_set_flags(uvwasi_t* uvwasi,
                                           uvwasi_fd_t fd,
                                           uvwasi_fdflags_t flags) {
-  return UVWASI_ENOTSUP;
+#ifdef _WIN32
+  /* TODO(cjihrig): Missing Windows support. */
+  return UVWASI_ENOSYS;
+#else
+  struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_errno_t err;
+  int mapped_flags;
+  int r;
+
+  if (uvwasi == NULL)
+    return UVWASI_EINVAL;
+
+  err = uvwasi_fd_table_get(&uvwasi->fds,
+                            fd,
+                            &wrap,
+                            UVWASI_RIGHT_FD_FDSTAT_SET_FLAGS,
+                            0);
+  if (err != UVWASI_ESUCCESS)
+    return err;
+
+  mapped_flags = 0;
+
+  if ((flags & UVWASI_FDFLAG_APPEND) == UVWASI_FDFLAG_APPEND)
+    mapped_flags |= O_APPEND;
+
+  if ((flags & UVWASI_FDFLAG_DSYNC) == UVWASI_FDFLAG_DSYNC)
+#ifdef O_DSYNC
+    mapped_flags |= O_DSYNC;
+#else
+    mapped_flags |= O_SYNC;
+#endif /* O_DSYNC */
+
+  if ((flags & UVWASI_FDFLAG_NONBLOCK) == UVWASI_FDFLAG_NONBLOCK)
+    mapped_flags |= O_NONBLOCK;
+
+  if ((flags & UVWASI_FDFLAG_RSYNC) == UVWASI_FDFLAG_RSYNC)
+#ifdef O_RSYNC
+    mapped_flags |= O_RSYNC;
+#else
+    mapped_flags |= O_SYNC;
+#endif /* O_RSYNC */
+
+  if ((flags & UVWASI_FDFLAG_SYNC) == UVWASI_FDFLAG_SYNC)
+    mapped_flags |= O_SYNC;
+
+  r = fcntl(wrap->fd, F_SETFL, mapped_flags);
+  if (r < 0)
+    return uvwasi__translate_uv_error(uv_translate_sys_error(errno));
+
+  return UVWASI_ESUCCESS;
+#endif /* _WIN32 */
 }
 
 
@@ -929,7 +1029,127 @@ uvwasi_errno_t uvwasi_fd_readdir(uvwasi_t* uvwasi,
                                  size_t buf_len,
                                  uvwasi_dircookie_t cookie,
                                  size_t* bufused) {
-  return UVWASI_ENOTSUP;
+  /* TODO(cjihrig): Support Windows where seekdir() and telldir() are used. */
+  /* TODO(cjihrig): Avoid opening and closing the directory on each call. */
+  struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_dirent_t dirent;
+  uv_dirent_t dirents[UVWASI__READDIR_NUM_ENTRIES];
+  uv_dir_t* dir;
+  uv_fs_t req;
+  uvwasi_errno_t err;
+  size_t name_len;
+  size_t available;
+  size_t tell;
+  size_t size_to_cp;
+  int i;
+  int r;
+
+  if (uvwasi == NULL || buf == NULL || bufused == NULL)
+    return UVWASI_EINVAL;
+
+  err = uvwasi_fd_table_get(&uvwasi->fds,
+                            fd,
+                            &wrap,
+                            UVWASI_RIGHT_FD_READDIR,
+                            0);
+  if (err != UVWASI_ESUCCESS)
+    return err;
+
+  /* Open the directory. */
+  r = uv_fs_opendir(NULL, &req, wrap->real_path, NULL);
+  if (r != 0)
+    return uvwasi__translate_uv_error(r);
+
+  /* Setup for reading the directory. */
+  dir = req.ptr;
+  dir->dirents = dirents;
+  dir->nentries = UVWASI__READDIR_NUM_ENTRIES;
+  uv_fs_req_cleanup(&req);
+
+  /* Seek to the proper location in the directory. */
+  if (cookie != UVWASI_DIRCOOKIE_START)
+    seekdir(dir->dir, cookie);
+
+  /* Read the directory entries into the provided buffer. */
+  err = UVWASI_ESUCCESS;
+  *bufused = 0;
+  while (0 != (r = uv_fs_readdir(NULL, &req, dir, NULL))) {
+    if (r < 0) {
+      err = uvwasi__translate_uv_error(r);
+      uv_fs_req_cleanup(&req);
+      goto exit;
+    }
+
+    for (i = 0; i < r; i++) {
+      /* TODO(cjihrig): This should probably be serialized to the buffer
+         consistently across platforms. In other words, d_next should always
+         be 8 bytes, d_ino should always be 8 bytes, d_namlen should always be
+         4 bytes, and d_type should always be 1 byte. */
+      tell = telldir(dir->dir);
+      if (tell < 0) {
+        err = uvwasi__translate_uv_error(uv_translate_sys_error(errno));
+        uv_fs_req_cleanup(&req);
+        goto exit;
+      }
+
+      name_len = strlen(dirents[i].name);
+      dirent.d_next = tell;
+      /* TODO(cjihrig): Missing ino libuv (and Windows) support. fstat()? */
+      dirent.d_ino = 0;
+      dirent.d_namlen = name_len;
+
+      switch (dirents[i].type) {
+        case UV_DIRENT_FILE:
+          dirent.d_type = UVWASI_FILETYPE_REGULAR_FILE;
+          break;
+        case UV_DIRENT_DIR:
+          dirent.d_type = UVWASI_FILETYPE_DIRECTORY;
+          break;
+        case UV_DIRENT_SOCKET:
+          dirent.d_type = UVWASI_FILETYPE_SOCKET_STREAM;
+          break;
+        case UV_DIRENT_LINK:
+          dirent.d_type = UVWASI_FILETYPE_SYMBOLIC_LINK;
+          break;
+        case UV_DIRENT_CHAR:
+          dirent.d_type = UVWASI_FILETYPE_CHARACTER_DEVICE;
+          break;
+        case UV_DIRENT_BLOCK:
+          dirent.d_type = UVWASI_FILETYPE_BLOCK_DEVICE;
+          break;
+        case UV_DIRENT_FIFO:
+        case UV_DIRENT_UNKNOWN:
+        default:
+          dirent.d_type = UVWASI_FILETYPE_UNKNOWN;
+          break;
+      }
+
+      /* Write dirent to the buffer. */
+      available = buf_len - *bufused;
+      size_to_cp = sizeof(dirent) > available ? available : sizeof(dirent);
+      memcpy(buf + *bufused, &dirent, size_to_cp);
+      *bufused += size_to_cp;
+      /* Write the entry name to the buffer. */
+      available = buf_len - *bufused;
+      size_to_cp = name_len > available ? available : name_len;
+      memcpy(buf + *bufused, &dirents[i].name, size_to_cp);
+      *bufused += size_to_cp;
+    }
+
+    uv_fs_req_cleanup(&req);
+
+    if (*bufused >= buf_len)
+      break;
+  }
+
+exit:
+  /* Close the directory. */
+  r = uv_fs_closedir(NULL, &req, dir, NULL);
+  uv_fs_req_cleanup(&req);
+  if (r != 0)
+    return uvwasi__translate_uv_error(r);
+
+  return err;
 }
 
 
@@ -1537,9 +1757,7 @@ uvwasi_errno_t uvwasi_path_symlink(uvwasi_t* uvwasi,
   if (err != UVWASI_ESUCCESS)
     return err;
 
-  /* TODO(cjihrig): Need to NULL terminate old_path. */
-
-  /* Windows support may require settings the flags option. */
+  /* Windows support may require setting the flags option. */
   r = uv_fs_symlink(NULL, &req, old_path, resolved_new_path, 0, NULL);
   uv_fs_req_cleanup(&req);
   if (r != 0)
@@ -1589,6 +1807,7 @@ uvwasi_errno_t uvwasi_poll_oneoff(uvwasi_t* uvwasi,
                                   uvwasi_event_t* out,
                                   size_t nsubscriptions,
                                   size_t* nevents) {
+  /* TODO(cjihrig): Implement this. */
   return UVWASI_ENOTSUP;
 }
 
@@ -1618,8 +1837,21 @@ uvwasi_errno_t uvwasi_proc_raise(uvwasi_t* uvwasi, uvwasi_signal_t sig) {
 
 
 uvwasi_errno_t uvwasi_random_get(uvwasi_t* uvwasi, void* buf, size_t buf_len) {
-  /* Pending libuv support: https://github.com/libuv/libuv/pull/2347 */
   return UVWASI_ENOTSUP;
+  /* uv_random() ships with libuv 1.33.0. Uncomment this implementation after
+     1.33.0 is available.
+
+  int r;
+
+  if (uvwasi == NULL || buf == NULL)
+    return UVWASI_EINVAL;
+
+  r = uv_random(NULL, NULL, buf, buf_len, 0, NULL);
+  if (r != 0)
+    return uvwasi__translate_uv_error(r);
+
+  return UVWASI_ESUCCESS;
+  */
 }
 
 
@@ -1645,6 +1877,8 @@ uvwasi_errno_t uvwasi_sock_recv(uvwasi_t* uvwasi,
                                 uvwasi_riflags_t ri_flags,
                                 size_t* ro_datalen,
                                 uvwasi_roflags_t* ro_flags) {
+  /* TODO(cjihrig): Waiting to implement, pending
+                    https://github.com/WebAssembly/WASI/issues/4 */
   return UVWASI_ENOTSUP;
 }
 
@@ -1655,6 +1889,8 @@ uvwasi_errno_t uvwasi_sock_send(uvwasi_t* uvwasi,
                                 size_t si_data_len,
                                 uvwasi_siflags_t si_flags,
                                 size_t* so_datalen) {
+  /* TODO(cjihrig): Waiting to implement, pending
+                    https://github.com/WebAssembly/WASI/issues/4 */
   return UVWASI_ENOTSUP;
 }
 
@@ -1662,5 +1898,7 @@ uvwasi_errno_t uvwasi_sock_send(uvwasi_t* uvwasi,
 uvwasi_errno_t uvwasi_sock_shutdown(uvwasi_t* uvwasi,
                                     uvwasi_fd_t sock,
                                     uvwasi_sdflags_t how) {
+  /* TODO(cjihrig): Waiting to implement, pending
+                    https://github.com/WebAssembly/WASI/issues/4 */
   return UVWASI_ENOTSUP;
 }
