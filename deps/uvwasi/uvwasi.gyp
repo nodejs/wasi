@@ -13,6 +13,9 @@
         'src/uv_mapping.c',
         'src/uvwasi.c',
       ],
+      'dependencies': [
+        '../uv/uv.gyp:libuv',
+      ],
       'direct_dependent_settings': {
         'include_dirs': ['include']
       },
