@@ -5,12 +5,11 @@
 # include <sched.h>
 # include <sys/types.h>
 # include <unistd.h>
+# include <dirent.h>
 # define SLASH '/'
 # define SLASH_STR "/"
 # define IS_SLASH(c) ((c) == '/')
 #else
-# include <dirent.h>
-# include <processthreadsapi.h>
 # define SLASH '\\'
 # define SLASH_STR "\\"
 # define IS_SLASH(c) ((c) == '/' || (c) == '\\')
@@ -255,9 +254,11 @@ uvwasi_errno_t uvwasi_init(uvwasi_t* uvwasi, uvwasi_options_t* options) {
 
   env_count = 0;
   env_buf_size = 0;
-  while (options->envp[env_count] != NULL) {
-    env_buf_size += strlen(options->envp[env_count]) + 1;
-    env_count++;
+  if (options->envp != NULL) {
+    while (options->envp[env_count] != NULL) {
+      env_buf_size += strlen(options->envp[env_count]) + 1;
+      env_count++;
+    }
   }
 
   uvwasi->envc = env_count;
@@ -349,6 +350,24 @@ void uvwasi_destroy(uvwasi_t* uvwasi) {
   uvwasi->argv = NULL;
   uvwasi->env_buf = NULL;
   uvwasi->env = NULL;
+}
+
+
+uvwasi_errno_t uvwasi_embedder_remap_fd(uvwasi_t* uvwasi,
+                                        const uvwasi_fd_t fd,
+                                        uv_file new_host_fd) {
+  struct uvwasi_fd_wrap_t* wrap;
+  uvwasi_errno_t err;
+
+  if (uvwasi == NULL)
+    return UVWASI_EINVAL;
+
+  err = uvwasi_fd_table_get(&uvwasi->fds, fd, &wrap, 0, 0);
+  if (err != UVWASI_ESUCCESS)
+    return err;
+
+  wrap->fd = new_host_fd;
+  return UVWASI_ESUCCESS;
 }
 
 
@@ -640,7 +659,9 @@ uvwasi_errno_t uvwasi_fd_fdstat_get(uvwasi_t* uvwasi,
                                     uvwasi_fdstat_t* buf) {
   struct uvwasi_fd_wrap_t* wrap;
   uvwasi_errno_t err;
+#ifndef _WIN32
   int r;
+#endif
 
   if (uvwasi == NULL || buf == NULL)
     return UVWASI_EINVAL;
@@ -1039,8 +1060,8 @@ uvwasi_errno_t uvwasi_fd_readdir(uvwasi_t* uvwasi,
   uvwasi_errno_t err;
   size_t name_len;
   size_t available;
-  size_t tell;
   size_t size_to_cp;
+  long tell;
   int i;
   int r;
 
@@ -1066,9 +1087,12 @@ uvwasi_errno_t uvwasi_fd_readdir(uvwasi_t* uvwasi,
   dir->nentries = UVWASI__READDIR_NUM_ENTRIES;
   uv_fs_req_cleanup(&req);
 
+#ifndef _WIN32
+  /* TODO(cjihrig): Need a Windows equivalent of this logic. */
   /* Seek to the proper location in the directory. */
   if (cookie != UVWASI_DIRCOOKIE_START)
     seekdir(dir->dir, cookie);
+#endif
 
   /* Read the directory entries into the provided buffer. */
   err = UVWASI_ESUCCESS;
@@ -1085,15 +1109,19 @@ uvwasi_errno_t uvwasi_fd_readdir(uvwasi_t* uvwasi,
          consistently across platforms. In other words, d_next should always
          be 8 bytes, d_ino should always be 8 bytes, d_namlen should always be
          4 bytes, and d_type should always be 1 byte. */
+#ifndef _WIN32
       tell = telldir(dir->dir);
       if (tell < 0) {
         err = uvwasi__translate_uv_error(uv_translate_sys_error(errno));
         uv_fs_req_cleanup(&req);
         goto exit;
       }
+#else
+      tell = 0; /* TODO(cjihrig): Need to support Windows. */
+#endif /* _WIN32 */
 
       name_len = strlen(dirents[i].name);
-      dirent.d_next = tell;
+      dirent.d_next = (uvwasi_dircookie_t) tell;
       /* TODO(cjihrig): Missing ino libuv (and Windows) support. fstat()? */
       dirent.d_ino = 0;
       dirent.d_namlen = name_len;
@@ -1127,12 +1155,12 @@ uvwasi_errno_t uvwasi_fd_readdir(uvwasi_t* uvwasi,
       /* Write dirent to the buffer. */
       available = buf_len - *bufused;
       size_to_cp = sizeof(dirent) > available ? available : sizeof(dirent);
-      memcpy(buf + *bufused, &dirent, size_to_cp);
+      memcpy((char*)buf + *bufused, &dirent, size_to_cp);
       *bufused += size_to_cp;
       /* Write the entry name to the buffer. */
       available = buf_len - *bufused;
       size_to_cp = name_len > available ? available : name_len;
-      memcpy(buf + *bufused, &dirents[i].name, size_to_cp);
+      memcpy((char*)buf + *bufused, &dirents[i].name, size_to_cp);
       *bufused += size_to_cp;
     }
 
