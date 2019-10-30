@@ -60,7 +60,7 @@ if (process.argv[2] === 'wasi-child') {
   runWASI({ test: 'exitcode', exitCode: 120 });
   runWASI({ test: 'fd_prestat_get_refresh' });
   runWASI({ test: 'follow_symlink', stdout: 'hello from input.txt\n' });
-  // runWASI({ test: 'getentropy' });
+  runWASI({ test: 'getentropy' });
   runWASI({ test: 'getrusage' });
   runWASI({ test: 'gettimeofday' });
   runWASI({ test: 'notdir' });
