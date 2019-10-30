@@ -40,7 +40,7 @@ represents a distinct sandbox environment. For security purposes, each `WASI`
 instance must have its command line arguments, environment variables, and
 sandbox directory structure configured explicitly.
 
-### new WASI([options])
+### new WASI(\[options\])
 <!-- YAML
 added: REPLACEME
 -->
