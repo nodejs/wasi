@@ -34,10 +34,11 @@ if (process.argv[2] === 'wasi-child') {
 } else {
   const assert = require('assert');
   const cp = require('child_process');
+  const { EOL } = require('os');
 
   function runWASI(options) {
     console.log('executing', options.test);
-    const opts = {};
+    const opts = { env: { ...process.env, NODE_DEBUG_NATIVE: 'wasi' } };
 
     if (options.stdin !== undefined)
       opts.input = options.stdin;
@@ -49,7 +50,7 @@ if (process.argv[2] === 'wasi-child') {
       'wasi-child',
       options.test
     ], opts);
-
+    console.log(child.stderr.toString());
     assert.strictEqual(child.status, options.exitCode || 0);
     assert.strictEqual(child.signal, null);
     assert.strictEqual(child.stdout.toString(), options.stdout || '');
@@ -59,21 +60,25 @@ if (process.argv[2] === 'wasi-child') {
   runWASI({ test: 'clock_getres' });
   runWASI({ test: 'exitcode', exitCode: 120 });
   runWASI({ test: 'fd_prestat_get_refresh' });
-  runWASI({ test: 'follow_symlink', stdout: 'hello from input.txt\n' });
   runWASI({ test: 'getentropy' });
   runWASI({ test: 'getrusage' });
   runWASI({ test: 'gettimeofday' });
   runWASI({ test: 'notdir' });
   // runWASI({ test: 'poll' });
   runWASI({ test: 'preopen_populates' });
-  runWASI({ test: 'read_file', stdout: 'hello from input.txt\n' });
+  runWASI({ test: 'read_file', stdout: `hello from input.txt${EOL}` });
   runWASI({
     test: 'read_file_twice',
-    stdout: 'hello from input.txt\nhello from input.txt\n'
+    stdout: `hello from input.txt${EOL}hello from input.txt${EOL}`
   });
   runWASI({ test: 'stat' });
-  runWASI({ test: 'stdin', stdin: 'hello world', stdout: 'hello world' });
-  runWASI({ test: 'symlink_escape' });
-  runWASI({ test: 'symlink_loop' });
   runWASI({ test: 'write_file' });
+
+  // Tests that are currently unsupported on Windows.
+  if (!common.isWindows) {
+    runWASI({ test: 'follow_symlink', stdout: `hello from input.txt${EOL}` });
+    runWASI({ test: 'stdin', stdin: 'hello world', stdout: 'hello world' });
+    runWASI({ test: 'symlink_escape' });
+    runWASI({ test: 'symlink_loop' });
+  }
 }
