@@ -295,18 +295,19 @@ void WASI::EnvironGet(const FunctionCallbackInfo<Value>& args) {
                          environ_buf_offset,
                          wasi->uvw_.env_buf_size);
   CHECK_BOUNDS_OR_RETURN(args, mem_size, environ_offset, wasi->uvw_.envc * 4);
-  char** environ = new char*[wasi->uvw_.envc];
+  std::vector<char*> environment(wasi->uvw_.envc);
   char* environ_buf = &memory[environ_buf_offset];
-  uvwasi_errno_t err = uvwasi_environ_get(&wasi->uvw_, environ, environ_buf);
+  uvwasi_errno_t err = uvwasi_environ_get(&wasi->uvw_,
+                                          environment.data(),
+                                          environ_buf);
 
   if (err == UVWASI_ESUCCESS) {
     for (size_t i = 0; i < wasi->uvw_.envc; i++) {
-      uint32_t offset = environ_buf_offset + (environ[i] - environ[0]);
+      uint32_t offset = environ_buf_offset + (environment[i] - environment[0]);
       wasi->writeUInt32(memory, offset, environ_offset + (i * 4));
     }
   }
 
-  delete[] environ;
   args.GetReturnValue().Set(err);
 }
 
