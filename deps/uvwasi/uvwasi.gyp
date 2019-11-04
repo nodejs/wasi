@@ -9,6 +9,7 @@
       },
       'include_dirs': ['include'],
       'sources': [
+        'src/clocks.c',
         'src/fd_table.c',
         'src/uv_mapping.c',
         'src/uvwasi.c',
