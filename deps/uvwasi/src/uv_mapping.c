@@ -1,6 +1,28 @@
+#include <sys/stat.h>
+
+#ifndef _WIN32
+# include <sys/types.h>
+#endif /* _WIN32 */
+
 #include "uv.h"
 #include "wasi_types.h"
 #include "uv_mapping.h"
+
+#if !defined(S_ISREG) && defined(S_IFMT) && defined(S_IFREG)
+# define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
+
+#if !defined(S_ISDIR) && defined(S_IFMT) && defined(S_IFDIR)
+# define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
+
+#if !defined(S_ISCHR) && defined(S_IFMT) && defined(S_IFCHR)
+# define S_ISCHR(m) (((m) & S_IFMT) == S_IFCHR)
+#endif
+
+#if !defined(S_ISLNK) && defined(S_IFMT) && defined(S_IFLNK)
+# define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
+#endif
 
 
 uvwasi_errno_t uvwasi__translate_uv_error(int err) {
@@ -45,7 +67,10 @@ uvwasi_errno_t uvwasi__translate_uv_error(int err) {
     case UV_ENOSYS:          return UVWASI_ENOSYS;
     case UV_ENOTCONN:        return UVWASI_ENOTCONN;
     case UV_ENOTDIR:         return UVWASI_ENOTDIR;
+    /* On at least some AIX machines, ENOTEMPTY and EEXIST are equivalent. */
+#if ENOTEMPTY != EEXIST
     case UV_ENOTEMPTY:       return UVWASI_ENOTEMPTY;
+#endif /* ENOTEMPTY != EEXIST */
     case UV_ENOTSOCK:        return UVWASI_ENOTSOCK;
     case UV_ENOTSUP:         return UVWASI_ENOTSUP;
     case UV_ENXIO:           return UVWASI_ENXIO;
@@ -167,4 +192,52 @@ int uvwasi__translate_to_uv_signal(uvwasi_signal_t sig) {
 uvwasi_timestamp_t uvwasi__timespec_to_timestamp(const uv_timespec_t* ts) {
   /* TODO(cjihrig): Handle overflow. */
   return (uvwasi_timestamp_t) ts->tv_sec * NANOS_PER_SEC + ts->tv_nsec;
+}
+
+
+uvwasi_filetype_t uvwasi__stat_to_filetype(const uv_stat_t* stat) {
+  uint64_t mode;
+
+  mode = stat->st_mode;
+
+  if (S_ISREG(mode))
+    return UVWASI_FILETYPE_REGULAR_FILE;
+
+  if (S_ISDIR(mode))
+    return UVWASI_FILETYPE_DIRECTORY;
+
+  if (S_ISCHR(mode))
+    return UVWASI_FILETYPE_CHARACTER_DEVICE;
+
+  if (S_ISLNK(mode))
+    return UVWASI_FILETYPE_SYMBOLIC_LINK;
+
+#ifdef S_ISSOCK
+  if (S_ISSOCK(mode))
+    return UVWASI_FILETYPE_SOCKET_STREAM;
+#endif /* S_ISSOCK */
+
+#ifdef S_ISFIFO
+  if (S_ISFIFO(mode))
+    return UVWASI_FILETYPE_SOCKET_STREAM;
+#endif /* S_ISFIFO */
+
+#ifdef S_ISBLK
+  if (S_ISBLK(mode))
+    return UVWASI_FILETYPE_BLOCK_DEVICE;
+#endif /* S_ISBLK */
+
+  return UVWASI_FILETYPE_UNKNOWN;
+}
+
+
+void uvwasi__stat_to_filestat(const uv_stat_t* stat, uvwasi_filestat_t* fs) {
+  fs->st_dev = stat->st_dev;
+  fs->st_ino = stat->st_ino;
+  fs->st_nlink = stat->st_nlink;
+  fs->st_size = stat->st_size;
+  fs->st_filetype = uvwasi__stat_to_filetype(stat);
+  fs->st_atim = uvwasi__timespec_to_timestamp(&stat->st_atim);
+  fs->st_mtim = uvwasi__timespec_to_timestamp(&stat->st_mtim);
+  fs->st_ctim = uvwasi__timespec_to_timestamp(&stat->st_ctim);
 }

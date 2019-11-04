@@ -6,6 +6,7 @@
 # include <sys/types.h>
 # include <unistd.h>
 # include <dirent.h>
+# include <time.h>
 # define SLASH '/'
 # define SLASH_STR "/"
 # define IS_SLASH(c) ((c) == '/')
@@ -21,6 +22,7 @@
 #include "uv.h"
 #include "uv_mapping.h"
 #include "fd_table.h"
+#include "clocks.h"
 
 
 static int uvwasi__is_absolute_path(const char* path, size_t path_len) {
@@ -247,24 +249,26 @@ uvwasi_errno_t uvwasi_init(uvwasi_t* uvwasi, uvwasi_options_t* options) {
   uvwasi->argc = options->argc;
   uvwasi->argv_buf_size = args_size;
 
-  uvwasi->argv_buf = malloc(args_size);
-  if (uvwasi->argv_buf == NULL) {
-    err = UVWASI_ENOMEM;
-    goto exit;
-  }
+  if (args_size > 0) {
+    uvwasi->argv_buf = malloc(args_size);
+    if (uvwasi->argv_buf == NULL) {
+      err = UVWASI_ENOMEM;
+      goto exit;
+    }
 
-  uvwasi->argv = calloc(options->argc, sizeof(char*));
-  if (uvwasi->argv == NULL) {
-    err = UVWASI_ENOMEM;
-    goto exit;
-  }
+    uvwasi->argv = calloc(options->argc, sizeof(char*));
+    if (uvwasi->argv == NULL) {
+      err = UVWASI_ENOMEM;
+      goto exit;
+    }
 
-  offset = 0;
-  for (i = 0; i < options->argc; ++i) {
-    size = strlen(options->argv[i]) + 1;
-    memcpy(uvwasi->argv_buf + offset, options->argv[i], size);
-    uvwasi->argv[i] = uvwasi->argv_buf + offset;
-    offset += size;
+    offset = 0;
+    for (i = 0; i < options->argc; ++i) {
+      size = strlen(options->argv[i]) + 1;
+      memcpy(uvwasi->argv_buf + offset, options->argv[i], size);
+      uvwasi->argv[i] = uvwasi->argv_buf + offset;
+      offset += size;
+    }
   }
 
   env_count = 0;
@@ -279,25 +283,26 @@ uvwasi_errno_t uvwasi_init(uvwasi_t* uvwasi, uvwasi_options_t* options) {
   uvwasi->envc = env_count;
   uvwasi->env_buf_size = env_buf_size;
 
-  /* TODO(cjihrig): Audit allocation sites for zero-sized allocations. */
-  uvwasi->env_buf = malloc(env_buf_size);
-  if (uvwasi->env_buf == NULL) {
-    err = UVWASI_ENOMEM;
-    goto exit;
-  }
+  if (env_buf_size > 0) {
+    uvwasi->env_buf = malloc(env_buf_size);
+    if (uvwasi->env_buf == NULL) {
+      err = UVWASI_ENOMEM;
+      goto exit;
+    }
 
-  uvwasi->env = calloc(env_count, sizeof(char*));
-  if (uvwasi->env == NULL) {
-    err = UVWASI_ENOMEM;
-    goto exit;
-  }
+    uvwasi->env = calloc(env_count, sizeof(char*));
+    if (uvwasi->env == NULL) {
+      err = UVWASI_ENOMEM;
+      goto exit;
+    }
 
-  offset = 0;
-  for (i = 0; i < env_count; ++i) {
-    size = strlen(options->envp[i]) + 1;
-    memcpy(uvwasi->env_buf + offset, options->envp[i], size);
-    uvwasi->env[i] = uvwasi->env_buf + offset;
-    offset += size;
+    offset = 0;
+    for (i = 0; i < env_count; ++i) {
+      size = strlen(options->envp[i]) + 1;
+      memcpy(uvwasi->env_buf + offset, options->envp[i], size);
+      uvwasi->env[i] = uvwasi->env_buf + offset;
+      offset += size;
+    }
   }
 
   for (i = 0; i < options->preopenc; ++i) {
@@ -414,37 +419,21 @@ uvwasi_errno_t uvwasi_args_sizes_get(uvwasi_t* uvwasi,
 uvwasi_errno_t uvwasi_clock_res_get(uvwasi_t* uvwasi,
                                     uvwasi_clockid_t clock_id,
                                     uvwasi_timestamp_t* resolution) {
-#ifndef _WIN32
-  struct timespec ts;
-  clockid_t clk;
-#endif /* _WIN32 */
-
   if (uvwasi == NULL || resolution == NULL)
     return UVWASI_EINVAL;
 
-  if (clock_id == UVWASI_CLOCK_MONOTONIC ||
-      clock_id == UVWASI_CLOCK_REALTIME) {
-    *resolution = 1;  /* Nanosecond precision. */
-    return UVWASI_ESUCCESS;
-  } else if (clock_id == UVWASI_CLOCK_PROCESS_CPUTIME_ID ||
-             clock_id == UVWASI_CLOCK_THREAD_CPUTIME_ID) {
-#ifndef _WIN32
-    if (clock_id == UVWASI_CLOCK_PROCESS_CPUTIME_ID)
-      clk = CLOCK_PROCESS_CPUTIME_ID;
-    else
-      clk = CLOCK_THREAD_CPUTIME_ID;
-
-    if (clock_getres(clk, &ts) < 0)
-      return uvwasi__translate_uv_error(uv_translate_sys_error(errno));
-
-    *resolution = (ts.tv_sec * NANOS_PER_SEC) + ts.tv_nsec;
-    return UVWASI_ESUCCESS;
-#else
-    return UVWASI_ENOSYS;
-#endif /* _WIN32 */
+  switch (clock_id) {
+    case UVWASI_CLOCK_MONOTONIC:
+    case UVWASI_CLOCK_REALTIME:
+      *resolution = 1;  /* Nanosecond precision. */
+      return UVWASI_ESUCCESS;
+    case UVWASI_CLOCK_PROCESS_CPUTIME_ID:
+      return uvwasi__clock_getres_process_cputime(resolution);
+    case UVWASI_CLOCK_THREAD_CPUTIME_ID:
+      return uvwasi__clock_getres_thread_cputime(resolution);
+    default:
+      return UVWASI_EINVAL;
   }
-
-  return UVWASI_EINVAL;
 }
 
 
@@ -452,29 +441,22 @@ uvwasi_errno_t uvwasi_clock_time_get(uvwasi_t* uvwasi,
                                      uvwasi_clockid_t clock_id,
                                      uvwasi_timestamp_t precision,
                                      uvwasi_timestamp_t* time) {
-  uv_timeval64_t tv;
-  int r;
-
   if (uvwasi == NULL || time == NULL)
     return UVWASI_EINVAL;
 
-  if (clock_id == UVWASI_CLOCK_MONOTONIC) {
-    *time = uv_hrtime();
-    return UVWASI_ESUCCESS;
-  } else if (clock_id == UVWASI_CLOCK_REALTIME) {
-    r = uv_gettimeofday(&tv);
-    if (r != 0)
-      return uvwasi__translate_uv_error(r);
-
-    *time = (tv.tv_sec * NANOS_PER_SEC) + (tv.tv_usec * 1000);
-    return UVWASI_ESUCCESS;
-  } else if (clock_id == UVWASI_CLOCK_PROCESS_CPUTIME_ID ||
-             clock_id == UVWASI_CLOCK_THREAD_CPUTIME_ID) {
-    /* TODO(cjihrig): Implement these two clocks. */
-    return UVWASI_ENOSYS;
+  switch (clock_id) {
+    case UVWASI_CLOCK_MONOTONIC:
+      *time = uv_hrtime();
+      return UVWASI_ESUCCESS;
+    case UVWASI_CLOCK_REALTIME:
+      return uvwasi__clock_gettime_realtime(time);
+    case UVWASI_CLOCK_PROCESS_CPUTIME_ID:
+      return uvwasi__clock_gettime_process_cputime(time);
+    case UVWASI_CLOCK_THREAD_CPUTIME_ID:
+      return uvwasi__clock_gettime_thread_cputime(time);
+    default:
+      return UVWASI_EINVAL;
   }
-
-  return UVWASI_EINVAL;
 }
 
 
@@ -810,14 +792,7 @@ uvwasi_errno_t uvwasi_fd_filestat_get(uvwasi_t* uvwasi,
     return uvwasi__translate_uv_error(r);
   }
 
-  buf->st_dev = req.statbuf.st_dev;
-  buf->st_ino = req.statbuf.st_ino;
-  buf->st_nlink = req.statbuf.st_nlink;
-  buf->st_size = req.statbuf.st_size;
-  buf->st_filetype = wrap->type;
-  buf->st_atim = uvwasi__timespec_to_timestamp(&req.statbuf.st_atim);
-  buf->st_mtim = uvwasi__timespec_to_timestamp(&req.statbuf.st_mtim);
-  buf->st_ctim = uvwasi__timespec_to_timestamp(&req.statbuf.st_ctim);
+  uvwasi__stat_to_filestat(&req.statbuf, buf);
   uv_fs_req_cleanup(&req);
 
   return UVWASI_ESUCCESS;
@@ -1393,14 +1368,7 @@ uvwasi_errno_t uvwasi_path_filestat_get(uvwasi_t* uvwasi,
     return uvwasi__translate_uv_error(r);
   }
 
-  buf->st_dev = req.statbuf.st_dev;
-  buf->st_ino = req.statbuf.st_ino;
-  buf->st_nlink = req.statbuf.st_nlink;
-  buf->st_size = req.statbuf.st_size;
-  buf->st_filetype = wrap->type;
-  buf->st_atim = uvwasi__timespec_to_timestamp(&req.statbuf.st_atim);
-  buf->st_mtim = uvwasi__timespec_to_timestamp(&req.statbuf.st_mtim);
-  buf->st_ctim = uvwasi__timespec_to_timestamp(&req.statbuf.st_ctim);
+  uvwasi__stat_to_filestat(&req.statbuf, buf);
   uv_fs_req_cleanup(&req);
 
   return UVWASI_ESUCCESS;
@@ -1613,14 +1581,24 @@ uvwasi_errno_t uvwasi_path_open(uvwasi_t* uvwasi,
                                   fs_rights_base,
                                   fs_rights_inheriting,
                                   &wrap);
-  if (err != UVWASI_ESUCCESS) {
-    uv_fs_close(NULL, &req, r, NULL);
-    uv_fs_req_cleanup(&req);
-    return err;
+  if (err != UVWASI_ESUCCESS)
+    goto close_file_and_error_exit;
+
+  /* Not all platforms support UV_FS_O_DIRECTORY, so enforce it here as well. */
+  if ((o_flags & UVWASI_O_DIRECTORY) != 0 &&
+      wrap.type != UVWASI_FILETYPE_DIRECTORY) {
+    uvwasi_fd_table_remove(&uvwasi->fds, wrap.id);
+    err = UVWASI_ENOTDIR;
+    goto close_file_and_error_exit;
   }
 
   *fd = wrap.id;
   return UVWASI_ESUCCESS;
+
+close_file_and_error_exit:
+  uv_fs_close(NULL, &req, r, NULL);
+  uv_fs_req_cleanup(&req);
+  return err;
 }
 
 
