@@ -4,22 +4,32 @@
 
 int main() {
   struct timeval tv1;
-  gettimeofday(&tv1, NULL);
-
-  for (int i = 0; i < 1000; i++) {
-  }
-
   struct timeval tv2;
-  gettimeofday(&tv2, NULL);
+  long long s1;
+  long long us1;
+  long long s2;
+  long long us2;
+  int r;
+  int success = 0;
 
-  // assert that some time has passed
-  long long s1 = tv1.tv_sec;
-  long long us1 = tv1.tv_usec;
-  long long s2 = tv2.tv_sec;
-  long long us2 = tv2.tv_usec;
-  assert(s1 <= s2);
-  if (s1 == s2) {
-    // strictly less than, so the timestamps can't be equal
-    assert(us1 < us2);
+  r = gettimeofday(&tv1, NULL);
+  assert(r == 0);
+  s1 = tv1.tv_sec;
+  us1 = tv1.tv_usec;
+
+  for (int i = 0; i < 10000; i++) {
+    r = gettimeofday(&tv2, NULL);
+    assert(r == 0);
+    s2 = tv2.tv_sec;
+    us2 = tv2.tv_usec;
+    assert(s1 <= s2);
+
+    // Verify that some time has passed.
+    if (s2 > s1 || (s2 == s1 && us2 > us1)) {
+      success = 1;
+      break;
+    }
   }
+
+  assert(success == 1);
 }
